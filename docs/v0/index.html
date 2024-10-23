@@ -149,15 +149,792 @@
     <textarea id="log-text-area" readonly style="width:90vw;height:200px" tabindex="1002"></textarea>
 </fieldset>
 
-<!--<script type="module" src="mock-portacount-data-source.js"></script>-->
-<!--<script type="module" src="data-collector.js"></script>-->
-<script type="module" >
-    // import {setup} from "https://cdn.jsdelivr.net/gh/emcee5601/fit-test-console@main/src/main.js";
-    import {DataCollector} from "https://cdn.jsdelivr.net/gh/emcee5601/fit-test-console@main/src/data-collector.js";
-    import {quickSetupSpeechSynthesis} from "https://cdn.jsdelivr.net/gh/emcee5601/fit-test-console@main/src/speech.js";
-    import {downloadRawData, downloadTableAsCSV, downloadTableAsJSON} from "https://cdn.jsdelivr.net/gh/emcee5601/fit-test-console@main/src/html-data-downloader.js";
-    import {FtdiSerial} from "https://cdn.jsdelivr.net/gh/emcee5601/fit-test-console@main/src/webusb-ftdi-data-source.js";
-    import {DataFilePushSource, getLines, getReadableStreamFromDataSource} from "https://cdn.jsdelivr.net/gh/emcee5601/fit-test-console@main/src/datasource-helpers.js";
+<script type="module" id="everything-in-one-module">
+    /*
+    Wrapper around webusb-ftdi
+     */
+    import {
+        WebUSBSerialDevice
+    } from "https://cdn.jsdelivr.net/gh/emcee5601/webusb-ftdi@2f671812f65af4c78bf8b19d043a3a15a85cdfe9/webusb-ftdi.js";
+
+    // import {getReadableStreamFromDataSource, logSource} from "./datasource-helpers.js";
+
+    /**
+     * make this sort of look like WebSerial.
+     */
+    export class FtdiSerial {
+        async requestPort() {
+            return new FtdiPortDataSource();
+        }
+    }
+
+    export class FtdiPortDataSource {
+        /**
+         * When there is no data available, wait this amount of time before checking again.
+         * @type {number}
+         */
+        noDataWaitTimeMs = 300;
+        readable;
+        device;
+        devicePort;
+        inboundDataQueue = null;
+        decoder = new TextDecoder();
+
+        constructor() {
+        }
+
+        // must call this from a button
+        async open(params) {
+            this.device = new WebUSBSerialDevice({
+                overridePortSettings: true, // TODO: not supported yet, always overrides baudrate
+                // these are the defaults, this config is only used if above is true
+                baudrate: params.baudRate,
+                bits: 8, // TODO: override not supported yet
+                stop: 1, // TODO: override not supported yet
+                parity: false, // TODO: override not supported yet
+                deviceFilters: [
+                    // example filtered device; see code for more examples
+                    {'vendorId': 0x0403, 'productId': 0x6001}, // 0403:6001 Future Technology Devices International, Ltd FT232 Serial (UART) IC
+                ]
+            });
+
+
+            return new Promise((resolve, reject) => {
+                this.device.requestNewPort().then((port) => {
+                    this.devicePort = port;
+                    this.readable = getReadableStreamFromDataSource(this); // this starts reading immediately  :(
+                    resolve(port);
+                }).catch((err) => {
+                    console.log(`error requesting a port: ${err}`);
+                    reject(err);
+                });
+            })
+        }
+
+        // called internally
+        connectToPort() {
+            this.inboundDataQueue = []; // this also flags that we're initialized
+            try {
+                // try to connect, connect receives two parameters: data callback and error callback
+                this.devicePort.connect((chunk) => {
+                    // chunk is a Uint8Array so we can't just use + or +=
+                    this.inboundDataQueue.push(chunk);
+
+                    // this is data callback, print data to console
+                    const decodedData = this.decoder.decode(chunk);
+                    // logData(`${decodedData}`);
+                    // logSource(`data callback got ${chunk.length} bytes: ${decodedData}\n`)
+                }, (error) => {
+                    // called if error receiving data
+                    logSource("Error receiving data: " + error)
+                });
+                logSource('connected (probably)');
+            } catch (e) {
+                // called if can't get a port
+                logSource("Error connecting to port: " + e.error)
+                logSource(e)
+            }
+        }
+
+
+        // Method returning promise when this push source is readable.
+        async dataRequest() {
+            const result = {
+                bytesRead: 0,
+                data: "",
+            };
+
+            if (this.inboundDataQueue === null) {
+                this.connectToPort();
+            }
+
+            if (this.inboundDataQueue.length === 0) {
+                // Data not available. We need a way to know if there is no more data or if we're just waiting.
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        console.log(`no data, waiting a bit...`);
+                        this.dataRequest().then((res) => {
+                            console.log(`trying to get more data...`);
+                            resolve(res)
+                        });  // is this the correct way to chain Promises?
+                    }, this.noDataWaitTimeMs); // wait a little bit
+                });
+            }
+
+            const chunks = this.inboundDataQueue.splice(0, this.inboundDataQueue.length); // is this thread safe?
+
+            return new Promise((resolve) => {
+                let bigChunkSize = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+                const bigChunk = new Uint8Array(bigChunkSize);
+
+                // this has side effects...
+                chunks.reduce((chunkIndex, chunk) => {
+                    bigChunk.set(chunk, chunkIndex);
+                    return (chunkIndex + chunk.length);
+                }, 0);
+
+                result.data = bigChunk;
+                result.bytesRead = bigChunkSize;
+                resolve(result);
+            });
+        }
+
+        // Dummy close function
+        close() {
+            return;
+        }
+    }
+
+    /*
+    Download data from an HTML elements in various formats.
+    Not all combination of elements and formats are supported.
+    */
+
+
+    function getFilenamePrefix(htmlElement, filenamePrefixHint = "data") {
+        return (htmlElement.id || htmlElement.nodeName || filenamePrefixHint) + "_";
+    }
+
+    /**
+     * Download the terminal's contents to a file. from https://github.com/GoogleChromeLabs/serial-terminal/blob/main/src/index.ts
+     */
+    function createFauxLink(fileName, contents) {
+        const linkContent = URL.createObjectURL(
+            new Blob([new TextEncoder().encode(contents).buffer],
+                {type: 'text/plain'}));
+        const fauxLink = document.createElement('a');
+        fauxLink.download = fileName;
+        fauxLink.href = linkContent;
+        return fauxLink;
+    }
+
+    /**
+     * @param htmlElement must have a value property (for now)
+     * @param filenameHint
+     */
+    export function downloadRawData(htmlElement, filenameHint = "data") {
+        const fauxLink = createFauxLink(`${getFilenamePrefix(htmlElement, filenameHint)}${new Date().getTime()}.txt`, htmlElement.value);
+        fauxLink.click();
+    }
+
+    export function downloadTableAsCSV(tableElement, filenameHint = "table") {
+        const tableData = [];
+        const rowElements = tableElement.getElementsByTagName("tr");
+        for (let row = 0; row < rowElements.length; row++) {
+            const rowData = [];
+            let cells = rowElements[row].getElementsByTagName("td");
+            if (cells.length === 0) {
+                cells = rowElements[row].getElementsByTagName("th");
+            }
+            for (let i = 0; i < cells.length; i++) {
+                rowData.push(cells[i].innerText);
+            }
+            tableData.push(rowData.map((value) => `"${value.replaceAll("\"", "\"\"")}"`).join(","));
+        }
+
+        const fauxLink = createFauxLink(`${getFilenamePrefix(tableElement, filenameHint)}${new Date().getTime()}.csv`, tableData.join("\n"));
+        fauxLink.click();
+    }
+
+    export function downloadTableAsJSON(tableElement, filenameHint = "table") {
+        const columnHeadingElements = tableElement.getElementsByTagName("th");
+        const columnNames = [];
+        for (let i = 0; i < columnHeadingElements.length; i++) {
+            columnNames.push(columnHeadingElements[i].innerText);
+        }
+
+        const tableData = [];
+        const rowElements = tableElement.getElementsByTagName("tr");
+        for (let row = 0; row < rowElements.length; row++) {
+            const rowData = {};
+            const cells = rowElements[row].getElementsByTagName("td");
+            for (let i = 0; i < columnNames.length; i++) {
+                if (cells.length <= i) {
+                    break; // no more cells (aborted)
+                }
+                rowData[columnNames[i]] = cells[i].innerText; // todo: convert line breaks
+            }
+            tableData.push(rowData);
+        }
+
+        const fauxLink = createFauxLink(`${getFilenamePrefix(tableElement, filenameHint)}${new Date().getTime()}.json`, JSON.stringify(tableData));
+        fauxLink.click();
+    }
+
+    /*
+     Text-to-speech functions
+     */
+    let selectedVoice;
+    let speechRate = 1;
+    let speechSynthesis;
+
+    export function setupSpeechSynthesis() {
+        const synth = window.speechSynthesis;
+        const inputForm = document.querySelector("form");
+        const inputTxt = document.getElementById("say-this");
+        const voiceSelect = document.getElementById("voice-select");
+        const speechSpeedElement = document.getElementById("speech-speed");
+        const speechRateLabel = document.getElementById("speech-rate-label");
+        let voices;
+
+        function populateVoiceList() {
+            voices = synth.getVoices();
+
+            for (const voice of voices) {
+                const option = document.createElement("option");
+                option.textContent = `${voice.name} (${voice.lang})`;
+
+                if (voice.default) {
+                    option.textContent += " — DEFAULT";
+                    option.selected = true;
+                }
+
+                option.setAttribute("data-lang", voice.lang);
+                option.setAttribute("data-name", voice.name);
+                voiceSelect.appendChild(option);
+            }
+            voiceSelect.onchange = event => selectedVoice = voices.find((voice) => voice.name === event.target.getAttribute("data-name"));
+
+            speechSpeedElement.onchange = event => {
+                speechRate = event.target.value;
+                speechRateLabel.innerText = speechRate;
+            }
+            speechSpeedElement.value = speechRate; // init
+            speechRateLabel.innerText = speechRate; // init
+        }
+
+        populateVoiceList();
+        if (synth.onvoiceschanged !== undefined) {
+            synth.onvoiceschanged = populateVoiceList;
+        }
+
+
+        inputForm.onsubmit = (event) => {
+            event.preventDefault();
+
+            sayIt(inputTxt.value);
+            inputTxt.blur();
+        };
+
+        speechSynthesis = synth;
+    }
+
+    export function quickSetupSpeechSynthesis() {
+        const synth = window.speechSynthesis;
+        const defaultVoice = synth.getVoices().find((voice) => voice.default);
+
+        if (synth.onvoiceschanged !== undefined) {
+            // synth.onvoiceschanged = populateVoiceList;
+        }
+
+        speechSynthesis = synth;
+        selectedVoice = defaultVoice;
+        speechRate = 1;
+    }
+
+    export function isSayingSomething() {
+        return speechSynthesis.speaking;
+    }
+
+    /**
+     * enqueue
+     * @param message
+     */
+    export function sayItLater(message) {
+        console.log(`say it later: ${message}`)
+        const utterThis = new SpeechSynthesisUtterance(message);
+        utterThis.voice = selectedVoice;
+        utterThis.rate = speechRate;
+
+        speechSynthesis.speak(utterThis); // this enqueues
+    }
+
+    export function sayIt(message) {
+        console.log(`say it ${message}`)
+        const utterThis = new SpeechSynthesisUtterance(message);
+        utterThis.voice = selectedVoice;
+        utterThis.rate = speechRate;
+
+        if(speechSynthesis.speaking) {
+            speechSynthesis.cancel(); // stop current utterance
+            // chrome needs a delay here for some reason, otherwise speak doesn't do anything.
+            // 60 ms seems to be around the minimum delay
+            setTimeout(() => speechSynthesis.speak(utterThis), 60)
+        } else {
+            speechSynthesis.speak(utterThis);
+        }
+    }
+
+    /*
+    Collect data from PortaCount 8020a
+     */
+    // import {isSayingSomething, sayIt, sayItLater} from "./speech.js";
+
+    // data output patterns
+    const PORTACOUNT_VERSION_PATTERN = /^PORTACOUNT\s+PLUS\S+PROM\S+(?<version>.+)/i; // PORTACOUNT PLUS PROM V1.7
+    const COPYRIGHT_PATTERN = /^COPYRIGHT.+/i; // COPYRIGHT(c)1992 TSI INC
+    const LICENSE_PATTERN = /^ALL\s+RIGHTS\s+RESERVED/i; // ALL RIGHTS RESERVED
+    const SERIAL_NUMBER_PATTERN = /^Serial\s+Number\s+(?<serialNumber>\d+)/i; // Serial Number 17754
+    const PASS_LEVEL_PATTERN = /^FF\s+pass\s+level\s+(?<passLevel>\d+)/i; // FF pass level = 100
+    const NUM_EXERCISES_PATTERN = /^No\.\s+of\s+exers\s*=\s*(?<numExercises>\d+)/i; // No. of exers  = 4
+    const AMBIENT_PURGE_PATTERN = /^Ambt\s+purge\s*=\s*(?<ambientPurgeTime>\d+)/i; // Ambt purge   = 4 sec.
+    const AMBIENT_SAMPLE_PATTERN = /^Ambt\s+sample\s*=\s*(?<ambientSampleTime>\d+)/i; // Ambt sample  = 5 sec.
+    const MASK_PURGE_PATTERN = /^Mask\s+purge\s*=\s*(?<maskPurgeTime>\d+)/i; // Mask purge  = 11 sec.
+    const MASK_SAMPLE_PATTERN = /^Mask\s+sample\s+(?<exerciseNumber>\d+)\s*=\s*(?<maskSampleTime>\d+)/i; // Mask sample 1 = 40 sec.
+    const DIP_SWITCH_PATTERN = /^DIP\s+switch\s+=\s+(?<dipSwitchBits>\d+)/i; // DIP switch  = 10111111
+    const COUNT_READING_PATTERN = /^Conc\.\s+(?<concentration>[\d\.]+)/i; // Conc.      0.00 #/cc
+    const NEW_TEST_PATTERN = /^NEW\s+TEST\s+PASS\s*=\s*(?<passLevel>\d+)/i; // NEW TEST PASS =  100
+    const AMBIENT_READING_PATTERN = /^Ambient\s+(?<concentration>[\d\.]+)/i; // Ambient   2290 #/cc
+    const MASK_READING_PATTERN = /^Mask\s+(?<concentration>[\d+\.]+)/i; // Mask    5.62 #/cc
+    const FIT_FACTOR_PATTERN = /^FF\s+(?<exerciseNumber>\d+)\s+(?<fitFactor>[\d\.]+)\s+(?<result>.+)/; // FF  1    352 PASS
+    const TEST_TERMINATED_PATTERN = /^Test\s+Terminated/i; // Test Terminated
+    const OVERALL_FIT_FACTOR_PATTERN = /^Overall\s+FF\s+(?<fitFactor>[\d\.]+)\s+(?<result>.+)/i; // Overall FF    89 FAIL
+    const LOW_PARTICLE_COUNT_PATTERN = /^(?<concentration>\d+)\/cc\s+Low\s+Particle\s+Count/i; // 970/cc Low Particle Count
+
+
+
+    export class DataCollector {
+        static nextTabIndex = 100;
+        beginExerciseTimoutId = null;
+        logTextArea;
+        dataTextArea;
+        instructionsTextArea;
+        currentTestData;
+        testDataHeaderRow;
+        testDataBody = null;
+        testDataCurrentRow = null;
+        headerComplete = false;
+        exerciseCount = 0; // we don't know up front how many exercises there are per test
+        testCount = 0;
+
+        constructor(logTextArea, dataTextArea, instructionsTextArea) {
+            this.logTextArea = logTextArea;
+            this.dataTextArea = dataTextArea;
+            this.instructionsTextArea = instructionsTextArea;
+            this.testDataHeaderRow = document.getElementById("test-data-header-row");
+            this.testDataBody = document.getElementById("test-data-body");
+            this.tableDiv = document.getElementById("data-table-div");
+        }
+
+        static getNextTabIndex() {
+            const n = DataCollector.nextTabIndex;
+            // advance by 2, so we can put the editor in the middle of adjacent cells and try to get shift-tab navigation to work properly
+            // this doesn't seem to fix shift-tab tabindex traversal
+            DataCollector.nextTabIndex += 2;
+            return n;
+        }
+
+        appendToLog(message) {
+            this.logTextArea.value += message;
+            DataCollector.scrollToBottom(this.logTextArea);
+        }
+        appendToData(data) {
+            this.dataTextArea.value += data;
+            DataCollector.scrollToBottom(this.dataTextArea);
+        }
+        setInstructions(message) {
+            this.instructionsTextArea.innerText = message;
+            this.maybeSayIt(message);
+        }
+
+        speechEnabled() {
+            return document.getElementById("enable-speech-checkbox").checked;
+        }
+
+        speechVerbose() {
+            return this.speechEnabled() && document.getElementById("enable-verbose-speech-checkbox").checked;
+        }
+
+        shouldSayParticleCount() {
+            return this.speechEnabled() && document.getElementById("speak-concentration-checkbox").checked;
+        }
+
+        maybeSayIt(message) {
+            if(this.speechEnabled()) {
+                sayIt(message);
+            }
+        }
+
+        maybeSayItLater(message) {
+            if(this.speechEnabled()) {
+                sayItLater(message);
+            }
+        }
+
+        static scrollToBottom(theTextArea) {
+            theTextArea.scrollTop = theTextArea.scrollHeight;
+        }
+
+
+        processLine(line) {
+            // appendOutput(`processLine: ${line} (length: ${line.length})\n`);
+            if(line.length === 0) {
+                this.appendToLog("processLine() ignoring empty line\n");
+                return;
+            }
+            // this.appendToLog(`${line}\n`);
+            let match;
+
+            match = line.match(NEW_TEST_PATTERN)
+            if(match) {
+                this.appendToData(`\nStarting a new test. ${new Date().toLocaleString()}\n`);
+                this.setInstructions("Perform exercise 1");
+                this.currentTestData = {
+                    start_time: new Date().toLocaleString(),
+                    results: [],
+                    samples: []
+                }
+                this.recordTestStart();
+                return;
+            }
+
+            match = line.match(AMBIENT_READING_PATTERN);
+            if(match) {
+                let concentration = match.groups.concentration;
+                this.appendToData(`ambient concentration: ${concentration}\n`);
+                this.currentTestData.samples.push({ambient: concentration});
+                return;
+            }
+
+            match = line.match(MASK_READING_PATTERN);
+            if(match) {
+                let concentration = match.groups.concentration;
+                this.appendToData(`mask concentration: ${concentration}\n`);
+                this.setInstructions("Breathe normally");
+                this.currentTestData.samples.push({mask: concentration});
+                return;
+            }
+
+            match = line.match(FIT_FACTOR_PATTERN);
+            if(match) {
+                const ff = match.groups.fitFactor;
+                const exerciseNum = Number(match.groups.exerciseNumber);
+                const result = match.groups.result;
+                this.appendToData(`Exercise ${exerciseNum}: Fit factor is ${ff}. Result: ${result}\n`)
+                this.setInstructions(`Perform exercise ${exerciseNum+1}`);
+                this.maybeSayItLater(`Score was ${ff}`)
+                // this.beginExerciseTimoutId = this.scheduleBeginExercisePrompt(exerciseNum+1);
+                this.currentTestData.results.push({exercise_num: exerciseNum, fit_factor: ff, result: result});
+                this.recordExerciseResult(exerciseNum, ff, result);
+                return;
+            }
+
+            match = line.match(OVERALL_FIT_FACTOR_PATTERN);
+            if(match) {
+                const ff = match.groups["fitFactor"];
+                const result = match.groups["result"];
+                this.appendToData(`\nTest complete. ${result} with FF of ${ff}\n`);
+                this.setInstructions(`Test complete. Score: ${ff}`);
+                this.currentTestData.results.push({exercise_num: "overall", fit_factor: ff, result: result});
+                this.appendToLog(JSON.stringify(this.currentTestData) + "\n");
+                this.recordTestComplete(ff, result);
+                return;
+            }
+
+            if(line.match(TEST_TERMINATED_PATTERN)) {
+                this.appendToData(`\nTest aborted\n`);
+                this.setInstructions("Breathe normally");
+                this.recordTestAborted();
+                return;
+            }
+
+            match = line.match(COUNT_READING_PATTERN);
+            if(match) {
+                if(!isSayingSomething()) {
+                    const concentration = match.groups.concentration;
+                    if(this.shouldSayParticleCount()) {
+                        if (this.speechVerbose()) {
+                            this.maybeSayIt(`Particle count is ${concentration}\n`);
+                        } else {
+                            this.maybeSayIt(`${concentration}\n`);
+                        }
+                    }
+                }
+            }
+
+        }
+
+        recordTestComplete(ff, result) {
+            if(!this.headerComplete) {
+                this.addColumnToHeader("Overall");
+                this.headerComplete = true;
+            }
+            this.appendExerciseResult(ff, result);
+        }
+
+        recordTestAborted() {
+            const cell = document.createElement("td");
+            cell.setAttribute("colspan", "100%");
+            cell.innerText = `aborted`;
+            cell.classList.add("aborted");
+            this.testDataCurrentRow.appendChild(cell);
+            this.setInstructions("Test cancelled.");
+        }
+
+        /**
+         * target must be a table cell (td)
+         * Use a contentEditable DIV for auto-resizing editing box: https://stackoverflow.com/a/15866077
+         * @param target
+         */
+        static beginEditing(target) {
+            const input = document.createElement("div");
+            input.setAttribute("contentEditable", "true");
+
+            /** Swap out the tabindex with the input element so shift-tab works properly.
+             * Otherwise, shift-tabbing will focus on the target (the td, which will re-enable editing mode).
+             * Removing the tabindex on the td means shift-tab will focus on the cell to its left as intended.
+             */
+            input.setAttribute("tabindex", target.getAttribute("tabindex"));
+            target.removeAttribute("tabindex");
+
+            input.classList.add("editable-table-cell")
+            input.innerHTML = target.innerHTML;
+            target.replaceChildren(input);
+            input.focus();
+
+            input.onblur = (event) => {
+                target.setAttribute("tabindex", input.getAttribute("tabindex"));
+                // target.replaceChildren();
+                target.innerHTML = input.innerHTML;
+            }
+        }
+
+
+        recordTestStart() {
+            // TODO: use databinding
+            function createTimestampCell() {
+                const cell = document.createElement("td");
+                cell.innerText = new Date().toLocaleString();
+                return cell;
+            }
+            function createEditableTableCell() {
+                let cell = document.createElement("td");
+                cell.classList.add("editable");
+                cell.setAttribute("tabindex", "" + DataCollector.getNextTabIndex());
+                cell.onfocus = function () {
+                    DataCollector.beginEditing(cell);
+                }
+                return cell;
+            }
+
+            const row = document.createElement("tr");
+            this.testDataCurrentRow = row;
+
+            this.testDataBody.appendChild(this.testDataCurrentRow);
+            let testNumCell = document.createElement("td");
+            testNumCell.innerText = "" + (++this.testCount);
+
+            row.appendChild(testNumCell);
+            row.appendChild(createTimestampCell());
+
+            row.appendChild(createEditableTableCell()); // participant
+            row.appendChild(createEditableTableCell()); // mask
+
+            // scroll to bottom
+            this.tableDiv.scrollTop = this.tableDiv.scrollHeight;
+        }
+
+        recordExerciseResult(exerciseNum, ff, result) {
+            if(this.exerciseCount < exerciseNum) {
+                this.addColumnToHeader(`Ex ${exerciseNum}`);
+                this.exerciseCount++;
+            }
+            this.appendExerciseResult(ff, result);
+        }
+
+        appendExerciseResult(ff, result) {
+            const exerciseResultCell = document.createElement("td");
+            exerciseResultCell.innerText = `${Math.floor(ff)}`;
+            exerciseResultCell.classList.add(result.toLowerCase(), "results");  // todo: parse this out explicitly to pass/fail
+            this.testDataCurrentRow.appendChild(exerciseResultCell);
+        }
+
+        addColumnToHeader(heading) {
+            const columnHeading = document.createElement("th");
+            columnHeading.innerText = heading;
+            this.testDataHeaderRow.appendChild(columnHeading);
+        }
+
+        /**
+         * When we get results from the previous exercise, we can prompt the participant to start the next exercise.
+         * If we've finished the last exercise of the test, we'll get the overall fit factor result soon. So we should
+         * delay prompting for the next exercise in this case.
+         * @param nextExerciseNum
+         * @returns {number}
+         */
+        scheduleBeginExercisePrompt(nextExerciseNum) {
+            const timeoutMs = 3200;
+            const timeoutId = setTimeout(() => {
+                this.beginExerciseTimoutId = null;
+                this.setInstructions(`Perform exercise ${nextExerciseNum}`);
+            }, timeoutMs);
+            return timeoutId;
+        }
+
+        cancelBeginExercisePrompt() {
+            if(this.beginExerciseTimoutId !== null) {
+                this.appendToLog("cancelling begin exercise prompt\n");
+                clearTimeout(this.beginExerciseTimoutId);
+                this.beginExerciseTimoutId = null;
+            }
+        }
+    }
+
+    /*
+      mock data source idea from https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Using_readable_streams
+     */
+
+    const utf8Decoder = new TextDecoder("utf-8");
+
+    /**
+     * from https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read#example_2_-_handling_text_line_by_line
+     * @param reader
+     * @returns an iterator that returns data from the reader broken up into lines
+     */
+
+    export async function* getLines(reader) {
+        async function readFromReader() {
+            const result = await reader.read();
+            if (!result.done && result.value) {
+                // appendRaw(utf8Decoder.decode(result.value));
+            }
+            return result;
+        }
+
+        let {value: chunk, done: readerDone} = await readFromReader();
+        chunk = chunk ? utf8Decoder.decode(chunk, {stream: true}) : "";
+
+
+        let re = /\r\n|\n|\r/gm;
+        let startIndex = 0;
+
+        for (; ;) {
+            let result = re.exec(chunk);
+            if (!result) {
+                if (readerDone) {
+                    break;
+                }
+                let remainder = chunk.substring(startIndex);
+                ({value: chunk, done: readerDone} = await readFromReader());
+                chunk =
+                    remainder + (chunk ? utf8Decoder.decode(chunk, {stream: true}) : "");
+                startIndex = re.lastIndex = 0;
+                continue;
+            }
+            yield chunk.substring(startIndex, result.index);
+            startIndex = re.lastIndex;
+        }
+        if (startIndex < chunk.length) {
+            // last line didn't end in a newline char
+            yield chunk.substring(startIndex);
+        }
+    }
+
+
+
+    export function getReadableStreamFromDataSource(pushSource) {
+        return new ReadableStream({
+            start(controller) {
+                readRepeatedly().catch((e) => controller.error(e));
+
+                function readRepeatedly() {
+                    return pushSource.dataRequest().then((result) => {
+                        if (result.data.length === 0) {
+                            logSource(`No data from source: closing`);
+                            controller.close();
+                            return;
+                        }
+
+                        // logSource(`Enqueue data: ${result.data}`);
+                        controller.enqueue(result.data);
+                        return readRepeatedly();
+                    });
+                }
+            },
+
+            cancel() {
+                logSource(`cancel() called on underlying source`);
+                pushSource.close();
+            },
+        });
+    }
+
+
+    export class DataFilePushSource {
+        static delayMs = 10;
+        static encoder = new TextEncoder();
+        reader = null;
+        buffer = null;
+        bufferIndex = 0;
+        fileOrUrl;
+
+        constructor(fileOrUrl) {
+            this.fileOrUrl = fileOrUrl;
+        }
+
+        // Method returning promise when this push source is readable.
+        async dataRequest() {
+            const result = {
+                bytesRead: 0,
+                data: "",
+            };
+
+            if (this.buffer === null || this.bufferIndex >= this.buffer.length) {
+                // need (more) data
+                if (this.reader === null) {
+                    this.reader = await fetch(this.fileOrUrl).then((result) => {
+                        if (result.ok) {
+                            return result.body.getReader();
+                        } else {
+                            throw new Error(`Failed to load protocol definitions. error: ${result.status}`);
+                        }
+                    })
+                }
+
+                const result = await this.reader.read();
+                this.bufferIndex = 0;
+                if (result.done) {
+                    // no more data
+                    this.buffer = []
+                } else {
+                    this.buffer = result.value;
+                }
+            }
+
+            if (this.buffer.length === 0) {
+                // no more data
+                return new Promise((resolve) => resolve(result));
+            }
+
+            // some data not sent
+            const end = this.bufferIndex + (this.bufferIndex + 3 < this.buffer.length ? 3 : this.buffer.length);
+            const chunk = this.buffer.slice(this.bufferIndex, end);
+            this.bufferIndex += chunk.length;
+            return new Promise((resolve) => {
+                // Emulate slow read of data
+                setTimeout(() => {
+                    result.data = chunk;
+                    result.bytesRead = chunk.length;
+                    resolve(result);
+                }, DataFilePushSource.delayMs);
+            });
+        }
+
+        // Dummy close function
+        close() {
+            return;
+        }
+    }
+
+    export function logSource(result) {
+        console.log(`source: ${result}`);
+    }
+
+    export function logData(result) {
+        // console.log(`data: ${result}`);
+    }
+
+
 
     const baudRateSelector = document.getElementById("baud-rate-selector")
     const logTextArea = document.getElementById("log-text-area")
