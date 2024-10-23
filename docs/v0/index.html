@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <style>
+        table {
+            border-collapse: collapse;
+        }
+
+        table th {
+            padding: 0.5rem;
+            border-bottom: 5px solid black;
+            border-left: 2px solid black;
+        }
+
+        th {
+            position: sticky;
+            top: 0;
+            background-color: white;
+            border-bottom: 5px solid black;
+        }
+
+        table td {
+            padding: 0.5rem;
+            border: 2px solid black;
+        }
+
+        table th:last-child {
+            border-right: 2px solid black;
+        }
+
+        div.editable-table-cell {
+            display: inline-block;
+            outline: none;
+        }
+
+        td.results {
+            text-align: end;
+        }
+
+        td.pass {
+            background-color: green;
+            color: white;
+        }
+
+        td.fail {
+            background-color: darkred;
+            color: white;
+        }
+
+        td.aborted {
+            background-color: gray;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<section>
+    <fieldset style="max-width:fit-content; float:left">
+        <legend>Baud Rate</legend>
+        <select id="baud-rate-selector">
+            <option value="300">300</option>
+            <option value="600">300</option>
+            <option value="1200" selected="selected">1200 (default)</option>
+            <option value="2400">2400</option>
+            <option value="9600">9600</option>
+        </select>
+    </fieldset>
+    <fieldset style="max-width:fit-content; float:left">
+        <legend>Data Source</legend>
+        <select id="data-source-selector">
+            <option value="ftdi">FTDI</option>
+            <option value="web-serial" selected="selected">WebSerial</option>
+            <option value="simulator">Simulator</option>
+        </select>
+        <input type="button" value="Connect" id="connect-button">
+    </fieldset>
+    <fieldset style="max-width:fit-content; float:left">
+        <legend>Options</legend>
+        <div style="display:inline-block">
+            <input type="checkbox" id="enable-speech-checkbox">
+            <label for="enable-speech-checkbox">Enable Speech</label>
+        </div>
+        <div style="display:inline-block">
+            <input type="checkbox" id="enable-verbose-speech-checkbox">
+            <label for="enable-verbose-speech-checkbox">Verbose</label>
+        </div>
+        <div style="display:inline-block">
+            <input type="checkbox" id="speak-concentration-checkbox">
+            <label for="speak-concentration-checkbox">Say particle count</label>
+        </div>
+    </fieldset>
+    <fieldset style="max-width:fit-content; float:left">
+        <legend>Download Data</legend>
+        <select id="download-file-format-selector">
+            <option value="raw">Raw</option>
+            <option value="csv" selected="selected">CSV</option>
+            <option value="json">JSON</option>
+        </select>
+        <input type="button" value="Download!" id="download-button">
+    </fieldset>
+<!--    <fieldset style="max-width:fit-content; float:right">-->
+<!--        <legend>Secret Menu</legend>-->
+<!--        <input type="button" value="simulate" id="use-fake-data-button">-->
+<!--&lt;!&ndash;        <input type="button" value="probe serial" id="serial-probe-button">&ndash;&gt;-->
+<!--        &lt;!&ndash;<input type="button" value="stop monitor" id="stop-monitor-button">&ndash;&gt;-->
+<!--    </fieldset>-->
+    <!--<fieldset>-->
+    <!--    <legend></legend>-->
+    <!--    <span>chrome://device-log/?types=Serial</span>-->
+    <!--</fieldset>-->
+</section>
+<br/>
+<section>
+    <fieldset>
+        <legend>Instructions</legend>
+        <div id="instructions" style="width:80vw;height:7vh;font-size:xxx-large; overflow:auto; resize: both"></div>
+    </fieldset>
+</section>
+<section id="collected-data">
+    <fieldset>
+        <legend>Test Info</legend>
+        <div id="data-table-div" style="height: 20vh;overflow: auto; resize: both">
+            <table id="fit-test-data-table">
+                <thead>
+                <tr id="test-data-header-row">
+                    <th>#</th>
+                    <th>Time</th>
+                    <th>Participant</th>
+                    <th>Mask</th>
+                </tr>
+                </thead>
+                <tbody id="test-data-body">
+
+                </tbody>
+            </table>
+        </div>
+    </fieldset>
+</section>
+<fieldset style="float:left">
+    <legend>Raw Data</legend>
+    <textarea id="raw-data" readonly style="width:300px;height:200px" tabindex="1000"></textarea>
+</fieldset>
+<fieldset style="float:left">
+    <legend>Processed Data</legend>
+    <textarea id="interpreted-data" readonly style="width:300px;height:200px" tabindex="1001"></textarea>
+</fieldset>
+<fieldset style="float:left">
+    <legend>Log</legend>
+    <textarea id="log-text-area" readonly style="width:90vw;height:200px" tabindex="1002"></textarea>
+</fieldset>
+
+<!--<script type="module" src="mock-portacount-data-source.js"></script>-->
+<!--<script type="module" src="data-collector.js"></script>-->
+<script type="module" src="../../src/main.js">
+
+</script>
+</body>
+</html>
