@@ -186,12 +186,14 @@ function maybeAutoConnect() {
 }
 
 
-quickSetupSpeechSynthesis();
-setupButtons();
-setupMonitor();
+export function setup() {
+    quickSetupSpeechSynthesis();
+    setupButtons();
+    setupMonitor();
 
-// maybeAutoConnect();
-// protect against un/reload most of the time
-window.addEventListener("beforeunload", (event) => {
-    event.preventDefault();
-});
+    // maybeAutoConnect();
+    // protect against un/reload most of the time
+    window.addEventListener("beforeunload", (event) => {
+        event.preventDefault();
+    });
+}
