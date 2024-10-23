@@ -45,11 +45,11 @@ export class FtdiPortDataSource {
             ]
         });
 
-        this.readable = getReadableStreamFromDataSource(this);
 
         return new Promise((resolve, reject) => {
             this.device.requestNewPort().then((port) => {
                 this.devicePort = port;
+                this.readable = getReadableStreamFromDataSource(this); // this starts reading immediately  :( 
                 resolve(port);
             }).catch((err) => {
                 console.log(`error requesting a port: ${err}`);
