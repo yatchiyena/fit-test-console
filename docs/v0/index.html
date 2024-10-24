@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+    <link rel="manifest" href="manifest.json"/>
     <style>
         table {
             border-collapse: collapse;
@@ -1282,7 +1283,7 @@
         setupButtons();
         setupMonitor();
         ExternalControl.setupButtons(document.getElementById("portacount-controls-fieldset"));
-        
+
         // maybeAutoConnect();
         // protect against un/reload most of the time
         window.addEventListener("beforeunload", (event) => {
