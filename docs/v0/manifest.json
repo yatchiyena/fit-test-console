@@ -7,7 +7,7 @@
       "sizes": "192x192"
     }
   ],
-  "start_url": "/docs/v0",
+  "start_url": "/fit-test-console/v0/",
   "display": "standalone"
 
 }
