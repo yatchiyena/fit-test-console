@@ -98,22 +98,17 @@
         </select>
         <input type="button" value="Download!" id="download-button">
     </fieldset>
-<!--    <fieldset style="max-width:fit-content; float:right">-->
-<!--        <legend>Secret Menu</legend>-->
-<!--        <input type="button" value="simulate" id="use-fake-data-button">-->
-<!--&lt;!&ndash;        <input type="button" value="probe serial" id="serial-probe-button">&ndash;&gt;-->
-<!--        &lt;!&ndash;<input type="button" value="stop monitor" id="stop-monitor-button">&ndash;&gt;-->
-<!--    </fieldset>-->
-    <!--<fieldset>-->
-    <!--    <legend></legend>-->
-    <!--    <span>chrome://device-log/?types=Serial</span>-->
-    <!--</fieldset>-->
 </section>
+<br/>
+<fieldset id="portacount-controls-fieldset" style="display:inline-block">
+    <legend>PortaCount control</legend>
+</fieldset>
 <br/>
 <section>
     <fieldset>
         <legend>Instructions</legend>
-        <div id="instructions" style="width:80vw;height:7vh;font-size:xxx-large; overflow:auto; resize: both"></div>
+        <div id="instructions"
+             style="width:80vw;min-height:7vh; height:fit-content; font-size:xxx-large; overflow:auto; resize: both"></div>
     </fieldset>
 </section>
 <section id="collected-data">
@@ -138,7 +133,7 @@
 </section>
 <fieldset style="float:left">
     <legend>Raw Data</legend>
-    <textarea id="raw-data" readonly style="width:300px;height:200px" tabindex="1000"></textarea>
+    <textarea id="raw-data" readonly style="width:400px;height:200px" tabindex="1000"></textarea>
 </fieldset>
 <fieldset style="float:left">
     <legend>Processed Data</legend>
@@ -150,6 +145,162 @@
 </fieldset>
 
 <script type="module" id="everything-in-one-module">
+    /*
+    External control for the PortaCount 8020a
+    The technical addendum describes the interface. Starts on page 13.
+     https://tsi.com/getmedia/0d5db6cd-c54d-4644-8c31-40cc8c9d8a9f/PortaCount_Model_8020_Technical_Addendum_US?ext=.pdf
+     */
+
+    export class ExternalControl {
+        static INVOKE_EXTERNAL_CONTROL = "J";
+        static RELEASE_FROM_EXTERNAL_CONTROL = "G";
+        static TEST_TO_SEE_N95_COMPANION_IS_ATTACHED = "Q";
+        static SWITCH_VALVE_ON = "VN"; // ambient
+        static SWITCH_VALVE_OFF = "VF"; // sample
+        static DISABLE_CONTINUOUS_DATA_TRANSMISSION = "ZD";
+        static ENABLE_CONTINUOUS_DATA_TRANSMISSION = "ZE";
+        static REQUEST_RUNTIME_STATUS_OF_BATTERY_AND_SIGNAL_PULSE = "R";
+        static REQUEST_SETTINGS = "S";
+        static TURN_POWER_OFF = "Y";
+        static SET_MASK_SAMPLE_TIME = "PTMxxvv";  // xx = exercise num [1..12], vv = time in seconds [10..99]
+        static SET_AMBIENT_SAMPLE_TIME = "PTA00vv";  // vv = time in seconds [5..99]
+        static SET_MASK_SAMPLE_PURGE_TIME = "PTPM0vv"; // vv = time in seconds [11..25]
+        static SET_AMBIENT_SAMPLE_PURGE_TIME = "PTPA0vv"; // vv = time in seconds [4..25]
+        static SET_FIT_FACTOR_PASS_LEVEL = "PPxxvvvvv"; // xx = memory location [1..12], vvvvv = pass level [0..64000]
+
+        static DISPLAY_CONCENTRATION_ON_PORTACOUNT_PLUS = "Dxxxxxx.xx";
+        static DISPLAY_FIT_FACTOR_PASS_LEVEL_ON_PORTACOUNT_PLUS = "Lxxxxxx";
+        static DISPLAY_FIT_FACTOR_ON_PORTACOUNT_PLUS = "Fxxxxxx.x";
+        static DISPLAY_OVERALL_FIT_FACTOR_ON_PORTACOUNT_PLUS = "Axxxxxx.x";
+        static DISPLAY_EXERCISE_NUMBER_ON_PORTACOUNT_PLUS = "Ixxxxxxxx";
+        static CLEAR_DISPLAY_ON_PORTACOUNT_PLUS = "K";
+        static SOUND_BEEPER_INSIDE_THE_PORTACOUNT_PLUS = "Bxx";
+
+        static encoder = new TextEncoder();
+        static staticWriter; // todo: rewrite button setup so we don't need this static field
+
+        constructor(writer) {
+            this.writer = writer;
+            ExternalControl.staticWriter = writer;
+        }
+
+
+        static setupButtons(containerElement) {
+            const controlModeButton = this.makeButton("control-type-button", "Internal Control");
+            controlModeButton.style.backgroundColor = "yellow";
+            controlModeButton.onclick = (event) => {
+                if (controlModeButton.value === "Internal Control") {
+                    controlModeButton.value = "External Control";
+                    controlModeButton.style.backgroundColor = "green";
+                    this.assumeManualControl();
+                } else {
+                    controlModeButton.value = "Internal Control";
+                    controlModeButton.style.backgroundColor = "yellow";
+                    this.releaseManualControl();
+                }
+            }
+            containerElement.appendChild(controlModeButton);
+
+            const valvePositionButton = this.makeButton("valve-position-button", "Sampling from Mask");
+            valvePositionButton.style.backgroundColor = "yellow";
+            valvePositionButton.onclick = (event) => {
+                if (valvePositionButton.value === "Sampling from Ambient") {
+                    valvePositionButton.value = "Sampling from Mask";
+                    valvePositionButton.style.backgroundColor = "green";
+                    this.sampleMask()
+                } else {
+                    valvePositionButton.value = "Sampling from Ambient";
+                    valvePositionButton.style.backgroundColor = "yellow";
+                    this.sampleAmbient();
+                }
+            }
+            containerElement.appendChild(valvePositionButton);
+
+            const dataTransmitModeButton = this.makeButton("data-transmit-mode-button", "Transmitting");
+            dataTransmitModeButton.style.backgroundColor = "green";
+            dataTransmitModeButton.onclick = (event) => {
+                if (dataTransmitModeButton.value === "Paused") {
+                    dataTransmitModeButton.value = "Transmitting";
+                    dataTransmitModeButton.style.backgroundColor = "green";
+                    this.enableDataTransmission();
+                } else {
+                    dataTransmitModeButton.value = "Paused";
+                    dataTransmitModeButton.style.backgroundColor = "yellow";
+                    this.disableDataTransmission();
+                }
+            }
+            containerElement.appendChild(dataTransmitModeButton);
+
+            const requestSettingsButton = this.makeButton("request-settings-button", "Request Settings");
+            requestSettingsButton.onclick = (event) => {
+                this.requestSettings();
+            }
+            containerElement.appendChild(requestSettingsButton);
+
+            const beepButton = this.makeButton("beep-button", "Beep!");
+            beepButton.onclick = (event) => {
+                this.beep();
+            }
+            containerElement.appendChild(beepButton);
+
+            const powerOffButton = this.makeButton("power-off-button", "Power Off");
+            powerOffButton.onclick = (event) => {
+                this.powerOff();
+            }
+            containerElement.appendChild(powerOffButton);
+        }
+
+        static makeButton(id, name) {
+            const controlModeButton = document.createElement("input");
+            controlModeButton.setAttribute("type", "button");
+            controlModeButton.setAttribute("value", name);
+            controlModeButton.id = id;
+            return controlModeButton;
+        }
+
+        static assumeManualControl() {
+            this.sendCommand(ExternalControl.INVOKE_EXTERNAL_CONTROL);
+        }
+
+        static releaseManualControl() {
+            this.sendCommand(ExternalControl.RELEASE_FROM_EXTERNAL_CONTROL);
+        }
+
+        static enableDataTransmission() {
+            this.sendCommand(ExternalControl.ENABLE_CONTINUOUS_DATA_TRANSMISSION);
+        }
+
+        static disableDataTransmission() {
+            this.sendCommand(ExternalControl.DISABLE_CONTINUOUS_DATA_TRANSMISSION);
+        }
+
+        static sampleAmbient() {
+            this.sendCommand(ExternalControl.SWITCH_VALVE_ON);
+        }
+
+        static sampleMask() {
+            this.sendCommand(ExternalControl.SWITCH_VALVE_OFF);
+        }
+
+        static requestSettings() {
+            this.sendCommand(ExternalControl.REQUEST_SETTINGS);
+        }
+
+        static powerOff() {
+            this.sendCommand(ExternalControl.TURN_POWER_OFF);
+        }
+
+        static beep(tenthsOfSeconds = 2) {
+            this.sendCommand(`B${String(tenthsOfSeconds).padStart(2, "0")}`);
+        }
+
+        static sendCommand(command) {
+            let terminalCommand = `${command}\r`;
+            let chunk = this.encoder.encode(terminalCommand);
+            this.staticWriter.write(chunk);
+        }
+    }
+
     /*
     Wrapper around webusb-ftdi
      */
@@ -455,7 +606,7 @@
         utterThis.voice = selectedVoice;
         utterThis.rate = speechRate;
 
-        if(speechSynthesis.speaking) {
+        if (speechSynthesis.speaking) {
             speechSynthesis.cancel(); // stop current utterance
             // chrome needs a delay here for some reason, otherwise speak doesn't do anything.
             // 60 ms seems to be around the minimum delay
@@ -490,7 +641,6 @@
     const TEST_TERMINATED_PATTERN = /^Test\s+Terminated/i; // Test Terminated
     const OVERALL_FIT_FACTOR_PATTERN = /^Overall\s+FF\s+(?<fitFactor>[\d\.]+)\s+(?<result>.+)/i; // Overall FF    89 FAIL
     const LOW_PARTICLE_COUNT_PATTERN = /^(?<concentration>\d+)\/cc\s+Low\s+Particle\s+Count/i; // 970/cc Low Particle Count
-
 
 
     export class DataCollector {
@@ -528,10 +678,12 @@
             this.logTextArea.value += message;
             DataCollector.scrollToBottom(this.logTextArea);
         }
+
         appendToData(data) {
             this.dataTextArea.value += data;
             DataCollector.scrollToBottom(this.dataTextArea);
         }
+
         setInstructions(message) {
             this.instructionsTextArea.innerText = message;
             this.maybeSayIt(message);
@@ -550,13 +702,13 @@
         }
 
         maybeSayIt(message) {
-            if(this.speechEnabled()) {
+            if (this.speechEnabled()) {
                 sayIt(message);
             }
         }
 
         maybeSayItLater(message) {
-            if(this.speechEnabled()) {
+            if (this.speechEnabled()) {
                 sayItLater(message);
             }
         }
@@ -568,7 +720,7 @@
 
         processLine(line) {
             // appendOutput(`processLine: ${line} (length: ${line.length})\n`);
-            if(line.length === 0) {
+            if (line.length === 0) {
                 this.appendToLog("processLine() ignoring empty line\n");
                 return;
             }
@@ -576,7 +728,7 @@
             let match;
 
             match = line.match(NEW_TEST_PATTERN)
-            if(match) {
+            if (match) {
                 this.appendToData(`\nStarting a new test. ${new Date().toLocaleString()}\n`);
                 this.setInstructions("Perform exercise 1");
                 this.currentTestData = {
@@ -589,7 +741,7 @@
             }
 
             match = line.match(AMBIENT_READING_PATTERN);
-            if(match) {
+            if (match) {
                 let concentration = match.groups.concentration;
                 this.appendToData(`ambient concentration: ${concentration}\n`);
                 this.currentTestData.samples.push({ambient: concentration});
@@ -597,7 +749,7 @@
             }
 
             match = line.match(MASK_READING_PATTERN);
-            if(match) {
+            if (match) {
                 let concentration = match.groups.concentration;
                 this.appendToData(`mask concentration: ${concentration}\n`);
                 this.setInstructions("Breathe normally");
@@ -606,12 +758,12 @@
             }
 
             match = line.match(FIT_FACTOR_PATTERN);
-            if(match) {
+            if (match) {
                 const ff = match.groups.fitFactor;
                 const exerciseNum = Number(match.groups.exerciseNumber);
                 const result = match.groups.result;
                 this.appendToData(`Exercise ${exerciseNum}: Fit factor is ${ff}. Result: ${result}\n`)
-                this.setInstructions(`Perform exercise ${exerciseNum+1}`);
+                this.setInstructions(`Perform exercise ${exerciseNum + 1}`);
                 this.maybeSayItLater(`Score was ${ff}`)
                 // this.beginExerciseTimoutId = this.scheduleBeginExercisePrompt(exerciseNum+1);
                 this.currentTestData.results.push({exercise_num: exerciseNum, fit_factor: ff, result: result});
@@ -620,7 +772,7 @@
             }
 
             match = line.match(OVERALL_FIT_FACTOR_PATTERN);
-            if(match) {
+            if (match) {
                 const ff = match.groups["fitFactor"];
                 const result = match.groups["result"];
                 this.appendToData(`\nTest complete. ${result} with FF of ${ff}\n`);
@@ -631,7 +783,7 @@
                 return;
             }
 
-            if(line.match(TEST_TERMINATED_PATTERN)) {
+            if (line.match(TEST_TERMINATED_PATTERN)) {
                 this.appendToData(`\nTest aborted\n`);
                 this.setInstructions("Breathe normally");
                 this.recordTestAborted();
@@ -639,10 +791,10 @@
             }
 
             match = line.match(COUNT_READING_PATTERN);
-            if(match) {
-                if(!isSayingSomething()) {
+            if (match) {
+                if (!isSayingSomething()) {
                     const concentration = match.groups.concentration;
-                    if(this.shouldSayParticleCount()) {
+                    if (this.shouldSayParticleCount()) {
                         if (this.speechVerbose()) {
                             this.maybeSayIt(`Particle count is ${concentration}\n`);
                         } else {
@@ -655,7 +807,7 @@
         }
 
         recordTestComplete(ff, result) {
-            if(!this.headerComplete) {
+            if (!this.headerComplete) {
                 this.addColumnToHeader("Overall");
                 this.headerComplete = true;
             }
@@ -707,6 +859,7 @@
                 cell.innerText = new Date().toLocaleString();
                 return cell;
             }
+
             function createEditableTableCell() {
                 let cell = document.createElement("td");
                 cell.classList.add("editable");
@@ -735,7 +888,7 @@
         }
 
         recordExerciseResult(exerciseNum, ff, result) {
-            if(this.exerciseCount < exerciseNum) {
+            if (this.exerciseCount < exerciseNum) {
                 this.addColumnToHeader(`Ex ${exerciseNum}`);
                 this.exerciseCount++;
             }
@@ -772,7 +925,7 @@
         }
 
         cancelBeginExercisePrompt() {
-            if(this.beginExerciseTimoutId !== null) {
+            if (this.beginExerciseTimoutId !== null) {
                 this.appendToLog("cancelling begin exercise prompt\n");
                 clearTimeout(this.beginExerciseTimoutId);
                 this.beginExerciseTimoutId = null;
@@ -829,7 +982,6 @@
             yield chunk.substring(startIndex);
         }
     }
-
 
 
     export function getReadableStreamFromDataSource(pushSource) {
@@ -935,7 +1087,6 @@
     }
 
 
-
     const baudRateSelector = document.getElementById("baud-rate-selector")
     const logTextArea = document.getElementById("log-text-area")
     const rawDataTextArea = document.getElementById("raw-data")
@@ -983,6 +1134,7 @@
             port.open({baudRate: baudRate}).then((event) => {
                 logit(`opened ${event}`)
                 monitor(port.readable.getReader());
+                control(port.writable.getWriter());
             })
         })
     }
@@ -994,6 +1146,7 @@
             port.open({baudRate: baudRate}).then((event) => {
                 logit(`ftdi opened ${event}`)
                 monitor(port.readable.getReader());
+                control(port.writable.getWriter());
             })
         })
     }
@@ -1017,7 +1170,7 @@
         const connectButton = document.getElementById("connect-button");
         connectButton.onclick = (event) => {
             const selectedDataSource = document.getElementById("data-source-selector").value
-            switch( selectedDataSource) {
+            switch (selectedDataSource) {
                 case "ftdi":
                     ftdiRequest();
                     break;
@@ -1064,10 +1217,17 @@
     }
 
 
+    async function control(writer) {
+        const remoteControl = new ExternalControl(writer);
+    }
 
     async function monitor(reader) {
         for await (let line of getLines(reader)) {
-            appendRaw(`${line}\n`); // not really raw anymore since we've re-chunked into lines.
+            const timestamp = new Date().toISOString();
+            if (line.trim().length > 0) {
+                // we don't care about empty lines
+                appendRaw(`${timestamp} ${line}\n`); // not really raw anymore since we've re-chunked into lines.
+            }
             dataCollector.processLine(line);
         }
     }
@@ -1121,7 +1281,8 @@
         quickSetupSpeechSynthesis();
         setupButtons();
         setupMonitor();
-
+        ExternalControl.setupButtons(document.getElementById("portacount-controls-fieldset"));
+        
         // maybeAutoConnect();
         // protect against un/reload most of the time
         window.addEventListener("beforeunload", (event) => {
