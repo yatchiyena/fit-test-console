@@ -1661,7 +1661,11 @@
 
 
         setupMonitor() {
-            navigator.serial.addEventListener('connect', this.onConnect)
+            if("serial" in navigator) {
+                navigator.serial.addEventListener('connect', this.onConnect)
+            } else {
+                console.log("navigator.serial not present")
+            }
         }
 
 
