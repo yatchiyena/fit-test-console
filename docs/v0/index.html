@@ -1251,17 +1251,10 @@
                     console.log(`got key ${cursor.key}`);
 
                     const recordTimestamp = Date.parse(cursor.value.timestamp);
-                    if( recordTimestamp > this.timeCutoff) {
-                        // keep
-                        this.keepRecords.push(cursor.value);
-                        this.timeCutoff = this.getUpdatedTimeCutoff(recordTimestamp);
-                        cursor.continue();
-                    } else {
-                        // done
-                        // how to abort / close the cursor?
-                        console.log(`stopping after ${this.keepRecords.length} records. other records are too old.`);
-                        done = true;
-                    }
+                    // keep
+                    this.keepRecords.push(cursor.value);
+                    this.timeCutoff = this.getUpdatedTimeCutoff(recordTimestamp);
+                    cursor.continue();
 
                     // callback();
                 } else {
@@ -1385,17 +1378,10 @@
                     console.log(`got key ${cursor.key}`);
 
                     const recordTimestamp = Date.parse(cursor.value.Time);
-                    if( recordTimestamp > this.timeCutoff) {
-                        // keep
-                        this.keepRecords.push(cursor.value);
-                        this.timeCutoff = this.getUpdatedTimeCutoff(recordTimestamp);
-                        cursor.continue();
-                    } else {
-                        // done
-                        // how to abort / close the cursor?
-                        console.log(`stopping after ${this.keepRecords.length} records. other records are too old.`);
-                        done = true;
-                    }
+                    // keep
+                    this.keepRecords.push(cursor.value);
+                    this.timeCutoff = this.getUpdatedTimeCutoff(recordTimestamp);
+                    cursor.continue();
 
                     // callback();
                 } else {
