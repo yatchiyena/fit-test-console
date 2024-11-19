@@ -70,6 +70,7 @@
         <legend>Data Source</legend>
         <select id="data-source-selector">
             <option value="ftdi">FTDI</option>
+            <option value="prolific">Prolific</option>
             <option value="web-serial" selected="selected">WebSerial</option>
             <option value="simulator">Simulator</option>
             <option value="database">Database</option>
@@ -110,7 +111,8 @@
 <section>
     <fieldset>
         <legend>Instructions</legend>
-        <div id="instructions" style="width:fit-content;min-height:3rem; height:fit-content; font-size:xxx-large; overflow:auto; resize: both"></div>
+        <div id="instructions"
+             style="width:fit-content;min-height:3rem; height:fit-content; font-size:xxx-large; overflow:auto; resize: both"></div>
     </fieldset>
 </section>
 <section id="collected-data">
@@ -415,6 +417,7 @@
             }
 
             const resultsDb = this.resultsDatabase;
+
             function createEditableTableCell(parentRow) {
                 const cell = document.createElement("td");
                 cell.classList.add("editable");
@@ -422,7 +425,7 @@
                 cell.onfocus = () => {
                     DataCollector.beginEditing(cell).then(() => {
                         const columns = getTableColumnNames(table);
-                        const record = jsonifyTableRow(columns,parentRow);
+                        const record = jsonifyTableRow(columns, parentRow);
                         resultsDb.updateTest(record);
                     });
                 };
@@ -604,7 +607,7 @@
         utterThis.voice = selectedVoice;
         utterThis.rate = speechRate;
 
-        if(speechSynthesis.speaking) {
+        if (speechSynthesis.speaking) {
             speechSynthesis.cancel(); // stop current utterance
             // chrome needs a delay here for some reason, otherwise speak doesn't do anything.
             // 60 ms seems to be around the minimum delay
@@ -702,6 +705,289 @@
     }
 
 
+    /**
+     * prolific driver
+     */
+    /*
+     * Copyright for portions of usbserial are held by Andreas Gal (2017) as part
+     * of pl2303. All other copyright for pl2303 are held by Tidepool Project (2018).
+     *
+     * Prolific PL2303 user-space USB driver for Node.js
+     *
+     * SPDX-License-Identifier: MIT
+     */
+
+
+    const SupportedBaudrates = [
+        75, 150, 300, 600, 1200, 1800, 2400, 3600,
+        4800, 7200, 9600, 14400, 19200, 28800, 38400,
+        57600, 115200, 230400, 460800, 614400,
+        921600, 1228800, 2457600, 3000000, 6000000,
+    ];
+
+    async function vendorRead(device, value, index) {
+        const buffer = await device.controlTransferIn({
+            requestType: 'vendor',
+            recipient: 'device',
+            request: 0x01,
+            value,
+            index,
+        }, 1);
+
+        return buffer[0];
+    }
+
+    async function vendorWrite(device, value, index) {
+        await device.controlTransferOut({
+            requestType: 'class',
+            recipient: 'device',
+            request: 0x01,
+            value,
+            index,
+        });
+    }
+
+    async function setBaudrate(device, baud) {
+        // find the nearest supported bitrate
+        const list = SupportedBaudrates.slice().sort((a, b) => Math.abs(a - baud) - Math.abs(b - baud));
+        const newBaud = list[0];
+        await device.controlTransferIn({
+            requestType: 'class',
+            recipient: 'interface',
+            request: 0x21,
+            value: 0,
+            index: 0,
+        }, 7);
+
+        console.log('Setting baud rate to', newBaud);
+
+        const data = new ArrayBuffer(7);
+        const parameters = new DataView(data);
+        parameters.setInt32(0, newBaud, true);
+        parameters.setUint8(4, 0); // 1 stop bit
+        parameters.setUint8(5, 0); // no parity
+        parameters.setUint8(6, 8); // 8 bit characters
+        await device.controlTransferOut({
+            requestType: 'class',
+            recipient: 'interface',
+            request: 0x20,
+            value: 0,
+            index: 0,
+        }, parameters);
+
+        await vendorWrite(device, 0x0, 0x0); // no flow control
+        await vendorWrite(device, 8, 0); // reset upstream data pipes
+        await vendorWrite(device, 9, 0);
+    }
+
+    class ProlificUsbSerial extends EventTarget {
+        constructor(device, opts) {
+            super();
+            const bitrate = opts.baudRate || 9600;
+            this.device = device;
+
+            (async () => {
+                await this.device.open();
+
+                [this.iface] = this.device.configuration.interfaces;
+                console.log('Claiming interface', this.iface.interfaceNumber);
+                await this.device.claimInterface(this.iface.interfaceNumber);
+
+                await vendorRead(this.device, 0x8484, 0);
+                await vendorWrite(this.device, 0x0404, 0);
+                await vendorRead(this.device, 0x8484, 0);
+                await vendorRead(this.device, 0x8383, 0);
+                await vendorRead(this.device, 0x8484, 0);
+                await vendorWrite(this.device, 0x0404, 1);
+                await vendorRead(this.device, 0x8484, 0);
+                await vendorRead(this.device, 0x8383, 0);
+                await vendorWrite(this.device, 0, 1);
+                await vendorWrite(this.device, 1, 0);
+                await vendorWrite(this.device, 2, 0x44);
+                await setBaudrate(this.device, bitrate);
+
+                this.isClosing = false;
+                this.readLoop();
+                this.dispatchEvent(new Event('ready'));
+            })().catch((error) => {
+                console.log('Error during PL2303 setup:', error);
+                this.dispatchEvent(new CustomEvent('error', {
+                    detail: error,
+                }));
+            });
+        }
+
+        async readLoop() {
+            let result;
+
+            try {
+                result = await this.device.transferIn(3, 64);
+            } catch (error) {
+                if (error.message.indexOf('LIBUSB_TRANSFER_NO_DEVICE')) {
+                    console.log('Device disconnected');
+                } else {
+                    console.log('Error reading data:', error);
+                }
+            }
+
+            if (result && result.data && result.data.byteLength) {
+                // console.log(`Received ${result.data.byteLength} byte(s).`);
+                const uint8buffer = new Uint8Array(result.data.buffer);
+                this.dispatchEvent(new CustomEvent('data', {
+                    detail: uint8buffer.slice(0),
+                }));
+            }
+
+            if (!this.isClosing && this.device.opened) {
+                this.readLoop();
+            }
+        }
+
+        close(cb) {
+            this.isClosing = true;
+            setTimeout(async () => {
+                try {
+                    await this.device.releaseInterface(0);
+                    await this.device.close();
+                } catch (err) {
+                    console.log('Error while closing:', err);
+                }
+                return cb();
+            }, 2000);
+        }
+
+        write(data, cb) {
+            this.device.transferOut(2, data).then(() => {
+                cb();
+            }, (err) => cb(err, null));
+        }
+    }
+
+
+    /**
+     * make this sort of look like WebSerial.
+     */
+    export class ProlificSerial {
+        async requestPort() {
+            return new ProlificPortDataSource();
+        }
+    }
+
+    export class ProlificPortDataSource {
+        /**
+         * When there is no data available, wait this amount of time before checking again.
+         * @type {number}
+         */
+        noDataWaitTimeMs = 300;
+        readable;
+        writable;
+        device;
+        devicePort;
+        inboundDataQueue = [];
+        decoder = new TextDecoder();
+
+        constructor() {
+        }
+
+        // must call this from a button
+        async open(opts) {
+            return new Promise((resolve, reject) => {
+                navigator.usb.requestDevice({filters: [{vendorId: 1659, productId: 9123}]}).then(device => {
+                    const serial = new ProlificUsbSerial(device, opts);
+                    serial.addEventListener('data', (event) => {
+                        const chunk = event.detail;
+                        const decodedData = this.decoder.decode(chunk);
+                        // logData(`${decodedData}`);
+                        // logSource(`data callback got ${chunk.length} bytes: ${decodedData}\n`)
+
+                        // chunk is a Uint8Array so we can't just use + or +=
+                        this.inboundDataQueue.push(chunk);
+                    })
+
+                    this.readable = getReadableStreamFromDataSource(this); // this starts reading immediately  :(
+                    this.writable = this.getWritableStreamFromDataSink(this);
+                    resolve(this);
+                })
+            })
+        }
+
+        getWritableStreamFromDataSink(dataSink) {
+            const queuingStrategy = new CountQueuingStrategy({highWaterMark: 1});
+            const encoder = new TextEncoder();
+            const decoder = new TextDecoder();
+            return new WritableStream(
+                {
+                    // Implement the sink
+                    write(chunk) {
+                        const data = decoder.decode(chunk);
+                        console.log(`sending to prolific: ${data}`);
+                        return new Promise((resolve, reject) => {
+                            dataSink.devicePort.send(chunk).then((res) => {
+                                console.log(`successfully sent to prolific: ${res.status}, bytesWritten: ${res.bytesWritten}`);
+                                resolve(res)
+                            }).catch((err) => {
+                                console.log(`error sending to prolific: ${err.toString()}`);
+                                reject(err)
+                            });
+                        });
+                    },
+                    close() {
+                        console.log("prolific sink closed")
+                    },
+                    abort(err) {
+                        console.log("prolific Sink error:", err);
+                    },
+                },
+                queuingStrategy
+            );
+        }
+
+
+        // Method returning promise when this push source is readable.
+        async dataRequest() {
+            const result = {
+                bytesRead: 0,
+                data: "",
+            };
+
+            if (this.inboundDataQueue.length === 0) {
+                // Data not available. We need a way to know if there is no more data or if we're just waiting.
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        console.log(`no data, waiting a bit...`);
+                        this.dataRequest().then((res) => {
+                            console.log(`trying to get more data...`);
+                            resolve(res)
+                        });  // is this the correct way to chain Promises?
+                    }, this.noDataWaitTimeMs); // wait a little bit
+                });
+            }
+
+            const chunks = this.inboundDataQueue.splice(0, this.inboundDataQueue.length); // is this thread safe?
+
+            return new Promise((resolve) => {
+                let bigChunkSize = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+                const bigChunk = new Uint8Array(bigChunkSize);
+
+                // this has side effects...
+                chunks.reduce((chunkIndex, chunk) => {
+                    bigChunk.set(chunk, chunkIndex);
+                    return (chunkIndex + chunk.length);
+                }, 0);
+
+                result.data = bigChunk;
+                result.bytesRead = bigChunkSize;
+                resolve(result);
+            });
+        }
+
+        // Dummy close function
+        close() {
+            return;
+        }
+    }
+
+
     /*
     Wrapper around webusb-ftdi
      */
@@ -764,7 +1050,7 @@
         }
 
         getWritableStreamFromDataSink(dataSink) {
-            const queuingStrategy = new CountQueuingStrategy({ highWaterMark: 1 });
+            const queuingStrategy = new CountQueuingStrategy({highWaterMark: 1});
             const encoder = new TextEncoder();
             const decoder = new TextDecoder();
             return new WritableStream(
@@ -921,7 +1207,6 @@
     }
 
 
-
     export function getReadableStreamFromDataSource(pushSource) {
         return new ReadableStream({
             start(controller) {
@@ -959,7 +1244,7 @@
         fileOrUrl;
         delayMs;
 
-        constructor(fileOrUrl, delayMs= DataFilePushSource.DEFAULT_DELAY_MS) {
+        constructor(fileOrUrl, delayMs = DataFilePushSource.DEFAULT_DELAY_MS) {
             this.fileOrUrl = fileOrUrl;
             this.delayMs = delayMs;
         }
@@ -1019,7 +1304,6 @@
     }
 
 
-
     export function logSource(result) {
         console.log(`source: ${result}`);
     }
@@ -1072,7 +1356,7 @@
             const controlModeButton = this.makeButton("control-type-button", "Internal Control");
             controlModeButton.style.backgroundColor = "yellow";
             controlModeButton.onclick = (event) => {
-                if(controlModeButton.value === "Internal Control") {
+                if (controlModeButton.value === "Internal Control") {
                     controlModeButton.value = "External Control";
                     controlModeButton.style.backgroundColor = "green";
                     this.assumeManualControl();
@@ -1087,7 +1371,7 @@
             const valvePositionButton = this.makeButton("valve-position-button", "Sampling from Mask");
             valvePositionButton.style.backgroundColor = "yellow";
             valvePositionButton.onclick = (event) => {
-                if(valvePositionButton.value === "Sampling from Ambient") {
+                if (valvePositionButton.value === "Sampling from Ambient") {
                     valvePositionButton.value = "Sampling from Mask";
                     valvePositionButton.style.backgroundColor = "green";
                     this.sampleMask()
@@ -1102,7 +1386,7 @@
             const dataTransmitModeButton = this.makeButton("data-transmit-mode-button", "Transmitting");
             dataTransmitModeButton.style.backgroundColor = "green";
             dataTransmitModeButton.onclick = (event) => {
-                if(dataTransmitModeButton.value === "Paused") {
+                if (dataTransmitModeButton.value === "Paused") {
                     dataTransmitModeButton.value = "Transmitting";
                     dataTransmitModeButton.style.backgroundColor = "green";
                     this.enableDataTransmission();
@@ -1193,6 +1477,7 @@
         static SERIAL_LINE_OBJECT_STORE = "serial-line-data";
         db;
         dbName;
+
         constructor(name = SimpleDB.DEFAULT_DB_NAME) {
             this.dbName = name;
             const request = window.indexedDB.open(this.dbName, 1);
@@ -1218,7 +1503,10 @@
 
             console.warn(`Database upgrade needed: ${theDb.name}`);
             // Create an objectStore for this database
-            const objectStore = theDb.createObjectStore(SimpleDB.SERIAL_LINE_OBJECT_STORE, {autoIncrement: true, keyPath: "index"});
+            const objectStore = theDb.createObjectStore(SimpleDB.SERIAL_LINE_OBJECT_STORE, {
+                autoIncrement: true,
+                keyPath: "index"
+            });
         }
 
 
@@ -1263,7 +1551,7 @@
                     done = true;
                 }
 
-                if(done) {
+                if (done) {
                     // now we can call the callback with records we're keeping in order of oldest to newest
                     console.log(`collected ${this.keepRecords.length} records`);
                     while (this.keepRecords.length > 0) {
@@ -1275,7 +1563,7 @@
 
         getUpdatedTimeCutoff(recordTimestamp) {
             // return recordTimestamp - SimpleDB.ONE_HOUR;
-            return recordTimestamp - 150* 60*1000; // some minute for debugging
+            return recordTimestamp - 150 * 60 * 1000; // some minute for debugging
         }
 
         /**
@@ -1283,7 +1571,7 @@
          * @param record
          */
         addLine(line) {
-            if(!this.db) {
+            if (!this.db) {
                 console.log("database not ready");
                 return {};
             }
@@ -1323,6 +1611,7 @@
         static TEST_RESULTS_OBJECT_STORE = "test-results-table-data";
         db;
         dbName;
+
         constructor(name = SimpleResultsDB.DEFAULT_DB_NAME) {
             this.dbName = name;
             const request = window.indexedDB.open(this.dbName, 2);
@@ -1348,7 +1637,10 @@
 
             console.warn(`Database upgrade needed: ${theDb.name}`);
             // Create an objectStore for this database
-            const objectStore = theDb.createObjectStore(SimpleResultsDB.TEST_RESULTS_OBJECT_STORE, {autoIncrement: true, keyPath: "ID"});
+            const objectStore = theDb.createObjectStore(SimpleResultsDB.TEST_RESULTS_OBJECT_STORE, {
+                autoIncrement: true,
+                keyPath: "ID"
+            });
         }
 
 
@@ -1390,7 +1682,7 @@
                     done = true;
                 }
 
-                if(done) {
+                if (done) {
                     // now we can call the callback with records we're keeping in order of oldest to newest
                     console.log(`collected ${this.keepRecords.length} records`);
                     while (this.keepRecords.length > 0) {
@@ -1401,7 +1693,7 @@
         }
 
         getUpdatedTimeCutoff(recordTimestamp) {
-            return recordTimestamp - SimpleResultsDB.ONE_HOUR *999; // debugging multiply hours by some large number
+            return recordTimestamp - SimpleResultsDB.ONE_HOUR * 999; // debugging multiply hours by some large number
         }
 
         /**
@@ -1409,7 +1701,7 @@
          * @param record
          */
         async createNewTest() {
-            if(!this.db) {
+            if (!this.db) {
                 console.log("database not ready");
                 return new Promise((resolve, reject) => reject("database not ready"));
             }
@@ -1434,7 +1726,7 @@
         }
 
         async updateTest(record) {
-            if(!this.db) {
+            if (!this.db) {
                 console.log("database not ready");
                 return new Promise((resolve, reject) => reject("database not ready"));
             }
@@ -1536,6 +1828,18 @@
             })
         }
 
+        prolificRequest() {
+            const baudRate = this.baudRateSelector.value;
+            const serial = new ProlificSerial();
+            serial.requestPort().then((port) => {
+                port.open({baudRate: baudRate}).then((event) => {
+                    this.logit(`prolific opened ${event}`)
+                    this.monitor(port.readable.getReader());
+                    // this.control(port.writable.getWriter());
+                })
+            })
+        }
+
         autodetectBaudRate() {
             // according to the 8020 technical manual, everything is N81
             // factory setting is 1200
@@ -1573,6 +1877,9 @@
                 switch (selectedDataSource) {
                     case "ftdi":
                         this.ftdiRequest();
+                        break;
+                    case "prolific":
+                        this.prolificRequest();
                         break;
                     case "web-serial":
                         this.serialRequest();
@@ -1648,7 +1955,7 @@
 
 
         setupMonitor() {
-            if("serial" in navigator) {
+            if ("serial" in navigator) {
                 navigator.serial.addEventListener('connect', this.onConnect)
             } else {
                 console.log("navigator.serial not present")
