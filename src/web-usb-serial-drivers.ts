@@ -1,3 +1,4 @@
+// @ts-expect-error no types defined
 import ftdi from 'ftdi-js'
 import {getReadableStreamFromDataSource, PushSource} from "./datasource-helper.ts";
 
