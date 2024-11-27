@@ -1,29 +1,33 @@
 /**
  * Table to store the results of fit tests.
  */
-
-
 import React, {useCallback, useEffect, useState} from 'react'
 
 import './index.css'
 
 import {
-    CellContext, Column,
-    ColumnDef, ColumnFiltersState,
+    CellContext,
+    Column,
+    ColumnDef,
+    ColumnFiltersState,
     flexRender,
-    getCoreRowModel, getFilteredRowModel,
+    getCoreRowModel,
+    getFilteredRowModel,
     getSortedRowModel,
-    Row, RowData, SortingState,
+    Row,
+    RowData,
+    SortingState,
     useReactTable,
 } from '@tanstack/react-table'
 
 import {useVirtualizer} from '@tanstack/react-virtual'
 import {SimpleResultsDBRecord} from "./database.ts";
 import {useInView} from "react-intersection-observer";
-import {mkConfig} from "export-to-csv";
-import {download, generateCsv} from "export-to-csv";
+import {download, generateCsv, mkConfig} from "export-to-csv";
 import {DataCollector} from "./data-collector.tsx";
 import {createMailtoLink} from "./html-data-downloader.ts";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 
 declare module '@tanstack/react-table' {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -34,7 +38,7 @@ declare module '@tanstack/react-table' {
     //allows us to define custom properties for our columns
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     interface ColumnMeta<TData extends RowData, TValue> {
-        filterVariant?: 'text' | 'range' | 'select'
+        filterVariant?: 'text' | 'range' | 'select' | 'date'
     }
 }
 
@@ -98,11 +102,6 @@ function useSkipper() {
     return [shouldSkip, skip] as const
 }
 
-export interface ResultsTableStates {
-    results: SimpleResultsDBRecord[],
-    readonly setResults: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>>,
-}
-
 //This is a dynamic row height example, which is more complicated, but allows for a more realistic table.
 //See https://tanstack.com/virtual/v3/docs/examples/react/table for a simpler fixed row height example.
 export function ResultsTable({dataCollector}: {
@@ -128,6 +127,20 @@ export function ResultsTable({dataCollector}: {
         }
     }
 
+    function compareNumericString(rowA:Row<SimpleResultsDBRecord>, rowB:Row<SimpleResultsDBRecord>, id:string) {
+        let a = Number.parseFloat(rowA.getValue(id));
+        let b = Number.parseFloat(rowB.getValue(id));
+        if (Number.isNaN(a)) {  // Blanks and non-numeric strings to bottom
+            a = Number.NEGATIVE_INFINITY;
+        }
+        if (Number.isNaN(b)) {
+            b = Number.NEGATIVE_INFINITY;
+        }
+        if (a > b) return 1;
+        if (a < b) return -1;
+        return 0;
+    }
+
     const columns = React.useMemo<ColumnDef<SimpleResultsDBRecord, string | number>[]>(
         () => [
             {
@@ -146,7 +159,13 @@ export function ResultsTable({dataCollector}: {
                         return null;
                     }
                 },
-                enableColumnFilter: false,
+                enableColumnFilter: true,
+                filterFn: (row, columnId, filterValue) => {
+                    return (row.getValue(columnId) as string).startsWith(filterValue);
+                },
+                meta: {
+                  filterVariant: 'date',
+                },
                 size: 200,
             },
             {
@@ -169,30 +188,45 @@ export function ResultsTable({dataCollector}: {
                 accessorKey: 'Ex 1',
                 cell: getExerciseResultCell,
                 enableColumnFilter: false,
+                sortUndefined: undefined,
+                sortingFn: compareNumericString,
+                sortDescFirst:true,
                 size: 50,
             },
             {
                 accessorKey: 'Ex 2',
                 cell: getExerciseResultCell,
                 enableColumnFilter: false,
+                sortUndefined: undefined,
+                sortingFn: compareNumericString,
+                sortDescFirst:true,
                 size: 50,
             },
             {
                 accessorKey: 'Ex 3',
                 cell: getExerciseResultCell,
                 enableColumnFilter: false,
+                sortUndefined: undefined,
+                sortingFn: compareNumericString,
+                sortDescFirst:true,
                 size: 50,
             },
             {
                 accessorKey: 'Ex 4',
                 cell: getExerciseResultCell,
                 enableColumnFilter: false,
+                sortUndefined: undefined,
+                sortingFn: compareNumericString,
+                sortDescFirst:true,
                 size: 50,
             },
             {
                 accessorKey: 'Final',
                 cell: getExerciseResultCell,
                 enableColumnFilter: false,
+                sortUndefined: undefined,
+                sortingFn: compareNumericString,
+                sortDescFirst:true,
                 size: 50,
             },
         ],
@@ -248,6 +282,7 @@ export function ResultsTable({dataCollector}: {
     })
 
     const {rows} = table.getRowModel()
+    const dates:Date[] = [...new Set<Date>(localTableData.map((row) => new Date(row.Time)))]
 
     //The virtualizer needs to know the scrollable container element
     const tableContainerRef = React.useRef<HTMLDivElement>(null)
@@ -344,7 +379,6 @@ export function ResultsTable({dataCollector}: {
                                     <th
                                         key={header.id}
                                         style={{
-                                            display: 'flex',
                                             width: header.getSize(),
                                         }}
                                     >
@@ -367,7 +401,7 @@ export function ResultsTable({dataCollector}: {
                                         </div>
                                         {header.column.getCanFilter() ? (
                                             <div>
-                                                <Filter column={header.column}/>
+                                                <Filter column={header.column} dates={dates}/>
                                             </div>
                                         ) : null}
 
@@ -426,56 +460,70 @@ export function ResultsTable({dataCollector}: {
 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function Filter({column}: { column: Column<any, unknown> }) {
+function Filter({column, dates}: { column: Column<any, unknown>, dates: Date[] }) {
     const columnFilterValue = column.getFilterValue()
     const { filterVariant } = column.columnDef.meta ?? {}
 
-    return filterVariant === 'range' ? (
-        <div>
-            <div className="flex space-x-2">
-                {/* See faceted column filters example for min max values functionality */}
-                <DebouncedInput
-                    type="number"
-                    value={(columnFilterValue as [number, number])?.[0] ?? ''}
-                    onChange={value =>
-                        column.setFilterValue((old: [number, number]) => [value, old?.[1]])
-                    }
-                    placeholder={`Min`}
-                    className="w-24 border shadow rounded"
-                />
-                <DebouncedInput
-                    type="number"
-                    value={(columnFilterValue as [number, number])?.[1] ?? ''}
-                    onChange={value =>
-                        column.setFilterValue((old: [number, number]) => [old?.[0], value])
-                    }
-                    placeholder={`Max`}
-                    className="w-24 border shadow rounded"
-                />
+    switch (filterVariant) {
+        case 'range':
+            return <div>
+                <div className="flex space-x-2">
+                    {/* See faceted column filters example for min max values functionality */}
+                    <DebouncedInput
+                        type="number"
+                        value={(columnFilterValue as [number, number])?.[0] ?? ''}
+                        onChange={value =>
+                            column.setFilterValue((old: [number, number]) => [value, old?.[1]])
+                        }
+                        placeholder={`Min`}
+                        className="w-24 border shadow rounded"
+                    />
+                    <DebouncedInput
+                        type="number"
+                        value={(columnFilterValue as [number, number])?.[1] ?? ''}
+                        onChange={value =>
+                            column.setFilterValue((old: [number, number]) => [old?.[0], value])
+                        }
+                        placeholder={`Max`}
+                        className="w-24 border shadow rounded"
+                    />
+                </div>
+                <div className="h-1"/>
             </div>
-            <div className="h-1" />
-        </div>
-    ) : filterVariant === 'select' ? (
-        <select
-            onChange={e => column.setFilterValue(e.target.value)}
-            value={columnFilterValue?.toString()}
-        >
-            {/* See faceted column filters example for dynamic select options */}
-            <option value="">All</option>
-            <option value="complicated">complicated</option>
-            <option value="relationship">relationship</option>
-            <option value="single">single</option>
-        </select>
-    ) : (
-        <DebouncedInput
-            className="w-36 border shadow rounded"
-            onChange={value => column.setFilterValue(value)}
-            placeholder={`Search...`}
-            type="text"
-            value={(columnFilterValue ?? '') as string}
-        />
-        // See faceted column filters example for datalist search suggestions
-    )
+        case 'select':
+            return <select
+                onChange={e => column.setFilterValue(e.target.value)}
+                value={columnFilterValue?.toString()}
+            >
+                {/* See faceted column filters example for dynamic select options */}
+                <option value="">All</option>
+                <option value="complicated">complicated</option>
+                <option value="relationship">relationship</option>
+                <option value="single">single</option>
+            </select>
+        case 'date': {
+            const curFilter = column.getFilterValue() as string;
+            const selectedDate = curFilter? new Date(curFilter) : null;
+            return <DatePicker minDate={new Date("2024-01-01")} maxDate={new Date()}
+                               isClearable={true}
+                               placeholderText={"Search..."}
+                               selected={selectedDate}
+                               includeDates={dates}
+                               showIcon={true}
+                               showDisabledMonthNavigation={true}
+                               todayButton={<input type={"button"} value={"Today"} />}
+                               onChange={(value) => column.setFilterValue(value?.toLocaleDateString())}
+            ></DatePicker>
+        }
+        default:
+            return <DebouncedInput
+                className="filterInput"
+                onChange={value => column.setFilterValue(value)}
+                placeholder={`Search...`}
+                type="text"
+                value={(columnFilterValue ?? '') as string}
+            />
+    }
 }
 
 // A typical debounced input react component
