@@ -1,7 +1,7 @@
 {
   "name": "fit-test-console",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "homepage": "https://emcee5601.github.io/fit-test-console",
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
   "dependencies": {
     "@tanstack/react-table": "^8.20.5",
     "@tanstack/react-virtual": "^3.10.9",
+    "@types/node": "^22.10.0",
     "export-to-csv": "^1.4.0",
     "ftdi-js": "^0.4.1",
     "json-2-csv": "^5.5.6",
