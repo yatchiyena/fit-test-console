@@ -6,7 +6,7 @@ Collect data from PortaCount 8020a
 // data output patterns
 import {speech} from "./speech.ts";
 import {ExternalControlStates} from "./external-control.tsx";
-import {SettingsDB, SimpleResultsDB, SimpleResultsDBRecord} from "./database.ts";
+import {SETTINGS_DB, SimpleResultsDB, SimpleResultsDBRecord} from "./database.ts";
 import React, {RefObject, useEffect, useState} from "react";
 import {ResultsTable} from "./ResultsTable.tsx";
 
@@ -42,7 +42,7 @@ export class DataCollector {
 
     static nextTabIndex = 100;
     resultsDatabase: SimpleResultsDB;
-    settingsDatabase: SettingsDB;
+    settingsDatabase;
     logCallback;
     dataCallback;
     processedDataCallback;
@@ -63,7 +63,7 @@ export class DataCollector {
         this.dataCallback = dataCallback;
         this.processedDataCallback = processedDataCallback;
         this.resultsDatabase = resultsDatabase;
-        this.settingsDatabase = new SettingsDB();
+        this.settingsDatabase = SETTINGS_DB;
         this.control = externalControlStates;
         this.states = states;
         console.log("DataCollector constructor called")
@@ -279,6 +279,37 @@ export class DataCollector {
         this.updateCurrentRowInDatabase();
     }
 
+    /**
+     * This is typically called when the UI is updating the test record.
+     * @param record
+     */
+    updateTest(record: SimpleResultsDBRecord) {
+        if(record.ID) {
+            if(record.ID === this.currentTestData?.ID) {
+                /*
+                The record being updated by the UI is currently being populated by the currently running test.
+                Point this.currentTestData to the record the UI is updating, and make sure the test results are copied over.
+                 */
+                const oldCurrentTestData = this.currentTestData
+                this.currentTestData = record;
+                // just make sure all the number fields have values
+                Object.entries(oldCurrentTestData).forEach(([key, value]) => {
+                    if(typeof value === "number" && this.currentTestData) {
+                        if(this.currentTestData[key] !== value) {
+                            this.currentTestData[key] = value;
+                            if(this.setResults) {
+                                this.setResults((prev) => [...prev]) // force an update by changing the ref
+                            }
+                        }
+                    }
+                })
+            }
+            this.resultsDatabase.updateTest(record);
+        } else {
+            console.log(`updateTest() unexpected record with no ID: ${record}`)
+        }
+    }
+
     updateCurrentRowInDatabase() {
         if (!this.currentTestData) {
             // no current data row
@@ -341,11 +372,10 @@ export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollect
                     }} value={instructions}></textarea>
                 </fieldset>
             </section>
-            <section id="collected-data" style={{display: "inline-block", width: "100%"}}>
+            <section id="collected-data" style={{display: "inline-block", width: "100%"}} >
                 <fieldset>
-                    <legend>Test Info</legend>
+                    <legend>Fit Test Info</legend>
                     <ResultsTable dataCollector={dataCollector}/>
-
                 </fieldset>
             </section>
             <section style={{width: "100%", display: "flex"}}>

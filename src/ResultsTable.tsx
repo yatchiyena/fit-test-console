@@ -1,7 +1,7 @@
 /**
  * Table to store the results of fit tests.
  */
-import React, {useCallback, useEffect, useState} from 'react'
+import React, {useEffect, useState} from 'react'
 
 import './index.css'
 
@@ -15,92 +15,19 @@ import {
     getFilteredRowModel,
     getSortedRowModel,
     Row,
-    RowData,
     SortingState,
     useReactTable,
 } from '@tanstack/react-table'
 
 import {useVirtualizer} from '@tanstack/react-virtual'
 import {SimpleResultsDBRecord} from "./database.ts";
-import {useInView} from "react-intersection-observer";
 import {download, generateCsv, mkConfig} from "export-to-csv";
 import {DataCollector} from "./data-collector.tsx";
 import {createMailtoLink} from "./html-data-downloader.ts";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-
-declare module '@tanstack/react-table' {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    interface TableMeta<TData extends RowData> {
-        updateData: (rowIndex: number, columnId: string, value: string | number) => void
-    }
-
-    //allows us to define custom properties for our columns
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    interface ColumnMeta<TData extends RowData, TValue> {
-        filterVariant?: 'text' | 'range' | 'select' | 'date'
-    }
-}
-
-// Give our default column cell renderer editing superpowers!
-function useEditableColumn({
-                               getValue,
-                               row: {index},
-                               column: {id},
-                               table
-                           }: CellContext<SimpleResultsDBRecord, string | number>) {
-    const initialValue = getValue()
-    // We need to keep and update the state of the cell normally
-    const [value, setValue] = React.useState(initialValue)
-    const {ref, inView} = useInView()
-
-    // When the input is blurred, we'll call our table meta's updateData function
-    const onBlur = useCallback(() => {
-        if(value != initialValue) {
-            // only update if changed
-            table.options.meta?.updateData(index, id, value)
-        }
-    }, [value, id, index, table.options.meta, initialValue])
-
-    // If the initialValue is changed external, sync it up with our state
-    React.useEffect(() => {
-        setValue(initialValue)
-    }, [initialValue])
-    useEffect(() => {
-        // console.log(`inview is now ${inView}`)
-        if(!inView) {
-            onBlur();
-        }
-    }, [inView, onBlur]);
-
-    // there's some sort of bug where inserting new rows at the top causes the editable cell's values to pull from the previous table's first record.
-    // only seems to affect rendering
-    // textarea has double the default height compared to input. 100% height will bleed out of the containing table cell
-    return (
-        <textarea ref={ref} style={{height: "auto", width: "fit-content", border:"none"}}
-                  value={value as string}
-                  onChange={e => setValue(e.target.value)}
-                  onBlur={onBlur}
-                  placeholder={`Click to add ${id}`}
-        />
-    )
-};
-
-function useSkipper() {
-    const shouldSkipRef = React.useRef(true)
-    const shouldSkip = shouldSkipRef.current
-
-    // Wrap a function with this to skip a pagination reset temporarily
-    const skip = React.useCallback(() => {
-        shouldSkipRef.current = false
-    }, [])
-
-    React.useEffect(() => {
-        shouldSkipRef.current = true
-    })
-
-    return [shouldSkip, skip] as const
-}
+import {useEditableColumn} from "./use-editable-column-hook.tsx";
+import {useSkipper} from "./use-skipper-hook.ts";
 
 //This is a dynamic row height example, which is more complicated, but allows for a more realistic table.
 //See https://tanstack.com/virtual/v3/docs/examples/react/table for a simpler fixed row height example.
@@ -110,7 +37,7 @@ export function ResultsTable({dataCollector}: {
     const [localTableData, setLocalTableData] = useState<SimpleResultsDBRecord[]>([])
     dataCollector.setResultsCallback(setLocalTableData)
 
-    function getExerciseResultCell(info: CellContext<SimpleResultsDBRecord, unknown>) {
+    function getExerciseResultCell(info: CellContext<SimpleResultsDBRecord, string|number>) {
         const val = info.getValue<number>();
         if( val < 1.1) {
             // probably aborted
@@ -151,6 +78,7 @@ export function ResultsTable({dataCollector}: {
             },
             {
                 accessorKey: 'Time',
+                header: 'Date',
                 cell: info => {
                     const date = info.getValue<Date>();
                     if (date) {
@@ -172,12 +100,18 @@ export function ResultsTable({dataCollector}: {
                 accessorKey: 'Participant',
                 cell: useEditableColumn,
                 enableColumnFilter: true,
+                filterFn: (row, columnId, filterValue) => {
+                    return RegExp(filterValue).test(row.getValue(columnId));
+                },
                 size: 150,
             },
             {
                 accessorKey: 'Mask',
                 cell: useEditableColumn,
-                size: 150,
+                filterFn: (row, columnId, filterValue) => {
+                    return RegExp(filterValue).test(row.getValue(columnId));
+                },
+                size: 250,
             },
             {
                 accessorKey: 'Notes',
@@ -266,9 +200,9 @@ export function ResultsTable({dataCollector}: {
                                 const updatedRow = {
                                     ...old[rowIndex]!,
                                     [columnId]: value,  // this updates the cell that was changed
-                                };
+                                } as SimpleResultsDBRecord;
                                 // TODO: roll this in a function in dataCollector
-                                dataCollector.resultsDatabase.updateTest(updatedRow); // this saves the changes to the db
+                                dataCollector.updateTest(updatedRow); // this saves the changes to the db
                                 return updatedRow;
                             }
                             return row
@@ -356,7 +290,7 @@ export function ResultsTable({dataCollector}: {
                 style={{
                     overflow: 'auto', //our scrollable table container
                     position: 'relative', //needed for sticky header
-                    height: '60vh', //should be a fixed height
+                    height: '80vh', //should be a fixed height
                 }}
             >
                 {/* Even though we're still using sematic table tags, we must use CSS grid and flexbox for dynamic row heights */}
@@ -459,8 +393,7 @@ export function ResultsTable({dataCollector}: {
 }
 
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function Filter({column, dates}: { column: Column<any, unknown>, dates: Date[] }) {
+function Filter<V>({column, dates}: { column: Column<SimpleResultsDBRecord, V>, dates: Date[] }) {
     const columnFilterValue = column.getFilterValue()
     const { filterVariant } = column.columnDef.meta ?? {}
 
@@ -511,6 +444,7 @@ function Filter({column, dates}: { column: Column<any, unknown>, dates: Date[] }
                                includeDates={dates}
                                showIcon={true}
                                showDisabledMonthNavigation={true}
+                               className={'datePickerInput'}
                                todayButton={<input type={"button"} value={"Today"} />}
                                onChange={(value) => column.setFilterValue(value?.toLocaleDateString())}
             ></DatePicker>

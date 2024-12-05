@@ -5,10 +5,11 @@ import {DataCollector, DataCollectorPanel, DataCollectorStates} from "./data-col
 import {SpeechSynthesisPanel} from "./speech-synthesis-panel.tsx";
 import {speech} from "./speech.ts"
 import {ExternalController, ExternalControlPanel, ExternalControlStates} from "./external-control.tsx";
-import {SimpleDB, SimpleResultsDB} from "./database.ts";
+import {AppSettings, SETTINGS_DB, SimpleDB, SimpleResultsDB} from "./database.ts";
 import {downloadData} from "./html-data-downloader.ts";
 import {json2csv} from "json-2-csv";
 import {FTDISerial} from "./web-usb-serial-drivers.ts";
+import {FitTestProtocolPanel} from "./FitTestProtocolPanel.tsx";
 
 
 function App() {
@@ -34,7 +35,7 @@ function App() {
         controlMode: controlMode,
         setControlMode: setControlMode
     };
-    const [externalControlStates] = useState( initialState);
+    const [externalControlStates] = useState(initialState);
     const [externalController] = useState(new ExternalController(externalControlStates));
     const [resultsDatabase] = useState(() => new SimpleResultsDB());
     const [rawDatabase] = useState(() => new SimpleDB());
@@ -50,16 +51,31 @@ function App() {
         fitTestDataTableRef: fitTestDataTableRef,
     };
     const [dataCollectorStates] = useState(initialDataCollectorState);
-    const [dataCollector] = useState(()  => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
+    const [dataCollector] = useState(() => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
         processedDataCallback, externalControlStates, resultsDatabase))
 
+    useEffect(() => {
+        SETTINGS_DB.open().then(() => {
+            console.log("app successfully opened settings db")
+            SETTINGS_DB.getSetting(AppSettings.ADVANCED_MODE, false).then((value) => {
+                console.log(`app retrieved advanced mode setting: ${value}`)
+                setEnableAdvancedControls(() => value as boolean)
+            })
+        })
+    }, []);
 
     useEffect(() => {
         console.log(`initializing raw logs db`)
         rawDatabase.open();
 
         return () => rawDatabase.close();
-    },[rawDatabase]);
+    }, [rawDatabase]);
+
+    useEffect(() => {
+        SETTINGS_DB.saveSetting(
+            AppSettings.ADVANCED_MODE, enableAdvancedControls
+        )
+    }, [enableAdvancedControls]);
 
     useEffect(() => {
         // need to propagate these down?
@@ -147,7 +163,7 @@ function App() {
                 // this is our internal drivers
                 break;
             // case "database":
-                // don't update results from saved raw data since we don't have participant info
+            // don't update results from saved raw data since we don't have participant info
             //     loadFromSerialDataDatabase();
             //     break;
             default:
@@ -195,10 +211,10 @@ function App() {
         serial.requestPort().then((port) => {
             port.open({baudRate: baudRate.toString()}).then((event) => {
                 logit(`ftdi opened ${event}`)
-                if(port.readable) {
+                if (port.readable) {
                     monitor(port.readable.getReader());
                 }
-                if(port.writable) {
+                if (port.writable) {
                     externalController.setWriter(port.writable.getWriter());
                 }
             })
@@ -213,10 +229,10 @@ function App() {
                 logit(`got serial port ${port.toLocaleString()}, using baud rate ${baudRate}`)
                 port.open({baudRate: baudRate}).then((event) => {
                     logit(`opened ${event}`)
-                    if(port.readable) {
+                    if (port.readable) {
                         monitor(port.readable.getReader());
                     }
-                    if(port.writable) {
+                    if (port.writable) {
                         externalController.setWriter(port.writable.getWriter());
                     }
                 })
@@ -228,7 +244,7 @@ function App() {
 
 
     function connectViaSimulator() {
-        const fakeReader = getReadableStreamFromDataSource(new DataFilePushSource("/public/simulator-data/test-data.txt", 0)).getReader();
+        const fakeReader = getReadableStreamFromDataSource(new DataFilePushSource("./fit-test-console/simulator-data/test-data.txt", 0)).getReader();
         monitor(fakeReader);
     }
 
@@ -298,15 +314,22 @@ function App() {
                 </div>
                 <div style={{display: "inline-block"}}>
                     <input type="checkbox" id="enable-advanced-controls"
+                           checked={enableAdvancedControls}
                            onChange={e => setEnableAdvancedControls(e.target.checked)}/>
                     <label htmlFor="enable-advanced-controls">Advanced</label>
                 </div>
             </fieldset>
-            <br/>
-            {enableAdvancedControls ? <ExternalControlPanel control={externalController}/> : null}
-            <br/>
-            { /* don't display the panel before the collector has been initialized*/
-                dataCollector ? <DataCollectorPanel dataCollector={dataCollector}></DataCollectorPanel> : null}
+            {enableAdvancedControls ?
+                <section style={{display: "inline-block", width: "100%"}}>
+                    <div style={{display: "inline-block", width: "100%"}}>
+                        <ExternalControlPanel control={externalController}/>
+                    </div>
+                    <fieldset>
+                        <legend>fit test protocols</legend>
+                        <FitTestProtocolPanel></FitTestProtocolPanel>
+                    </fieldset>
+                </section> : null}
+            <DataCollectorPanel dataCollector={dataCollector}></DataCollectorPanel>
         </>
     )
 }

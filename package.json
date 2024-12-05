@@ -1,7 +1,7 @@
 {
   "name": "fit-test-console",
   "private": true,
-  "version": "0.0.3",
+  "version": "0.0.4",
   "homepage": "https://emcee5601.github.io/fit-test-console",
   "type": "module",
   "scripts": {
@@ -12,6 +12,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emotion/styled": "^11.13.5",
+    "@mui/base": "^5.0.0-beta.63",
+    "@mui/system": "^6.1.9",
     "@tanstack/react-table": "^8.20.5",
     "@tanstack/react-virtual": "^3.10.9",
     "@types/node": "^22.10.0",
@@ -22,7 +25,8 @@
     "react": "^18.3.1",
     "react-datepicker": "^7.5.0",
     "react-dom": "^18.3.1",
-    "react-intersection-observer": "^9.13.1"
+    "react-intersection-observer": "^9.13.1",
+    "react-select": "^5.8.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
