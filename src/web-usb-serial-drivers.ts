@@ -175,6 +175,7 @@ export class ProlificPortDataSource implements PushSource{
                     const data = decoder.decode(chunk);
                     console.log(`sending to prolific: ${data}`);
                     return new Promise<void>((resolve, reject) => {
+                        // TODO: do we need to wrap chunk in a Buffer? or wrap data in a Buffer and send that instead?
                         dataSink.device?.write(chunk).then((res) => {
                             console.log(`successfully sent to prolific: ${res.status}, bytesWritten: ${res.bytesWritten}`);
                             resolve()

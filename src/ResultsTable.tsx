@@ -216,7 +216,7 @@ export function ResultsTable({dataCollector}: {
     })
 
     const {rows} = table.getRowModel()
-    const dates:Date[] = [...new Set<Date>(localTableData.map((row) => new Date(row.Time)))]
+    const dates:Date[] = [new Date(), ...new Set<Date>(localTableData.map((row) => new Date(row.Time)))]
 
     //The virtualizer needs to know the scrollable container element
     const tableContainerRef = React.useRef<HTMLDivElement>(null)
