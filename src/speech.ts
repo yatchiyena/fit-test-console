@@ -19,7 +19,7 @@ export const speech = new class {
      */
     private updateVoiceList(voices: SpeechSynthesisVoice[]) {
         allVoices = voices.filter((voice) => {
-            console.log(`voice ${voice.name} has lang ${voice.lang}`);
+            // console.log(`voice ${voice.name} has lang ${voice.lang}`);
             return voice.lang.startsWith("en")
         }).sort((a, b) => `${a.lang} ${a.name}`.localeCompare(`${b.lang} ${b.name}`));
     }

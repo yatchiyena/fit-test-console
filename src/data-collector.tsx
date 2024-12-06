@@ -237,24 +237,24 @@ export class DataCollector {
     }
 
 
-    async recordTestStart(timestamp = new Date().toLocaleString()) {
+    recordTestStart(timestamp = new Date().toLocaleString()) {
         if (!this.resultsDatabase) {
             console.log("database not ready");
             return;
         }
 
         this.lastExerciseNum = 0;
-        this.currentTestData = await this.resultsDatabase.createNewTest(timestamp); // primary key is the "ID" field
-        if (this.currentTestData) {
+        this.resultsDatabase.createNewTest(timestamp).then((newTestData) => {
+            this.currentTestData = newTestData;
             console.log(`new test added: ${JSON.stringify(this.currentTestData)}`)
             if(this.setResults) {
                 // this triggers an update
-                this.setResults((prev) => [...prev, this.currentTestData as SimpleResultsDBRecord]);
+                this.setResults((prev) => [...prev, newTestData]);
             } else {
                 // shouldn't happen, but setResults callback starts off uninitialized
                 console.log("have current test data, but setResults callback hasn't been initialized. this shouldn't happen?")
             }
-        }
+        })
     }
 
     recordExerciseResult(exerciseNum: number | string, ff: number) {
