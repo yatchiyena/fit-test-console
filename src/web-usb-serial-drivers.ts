@@ -153,7 +153,7 @@ export class ProlificPortDataSource implements PushSource{
                 const serial = new ProlificUsbSerial(device, opts);
                 this.device = serial;
                 serial.addEventListener('data', (event) => {
-                    const chunk: Uint8Array = event.detail;
+                    const chunk: Uint8Array = (event as CustomEvent).detail;
                     // chunk is a Uint8Array so we can't just use + or +=
                     this.inboundDataQueue.push(chunk);
                 })
