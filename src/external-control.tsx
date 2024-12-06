@@ -67,6 +67,7 @@ export class ExternalController {
 
 export function ExternalControlPanel({control}: { control: ExternalController }) {
     const controlModeButtonRef = useRef<HTMLInputElement>(null)
+    const forceInternalControlButtonRef = useRef<HTMLInputElement>(null)
     const dataTransmissionModeButtonRef = useRef<HTMLInputElement>(null)
     const valvePositionButtonRef = useRef<HTMLInputElement>(null)
     const beepButtonRef = useRef<HTMLInputElement>(null);
@@ -186,23 +187,27 @@ export function ExternalControlPanel({control}: { control: ExternalController })
 
     return (
         <>
-            <fieldset id="portacount-controls-fieldset" style={{display: "inline-block", float:"inline-start"}}>
+            <fieldset id="portacount-controls-fieldset" style={{display: "inline-block", float: "inline-start"}}>
                 <legend>PortaCount control</legend>
-                {<input type="button" ref={controlModeButtonRef} value={control.states.controlMode}
-                        id={"control-mode-button"}
-                        onClick={toggleControlMode}/>}
-                {<input type="button" ref={valvePositionButtonRef} value={control.states.valvePosition}
+                <input type="button" ref={forceInternalControlButtonRef} value="Force internal control"
+                       id="force-internal-control-button"
+                       onClick={releaseManualControl}/>
+                <input type="button" ref={controlModeButtonRef}
+                                                             value={control.states.controlMode}
+                                                             id={"control-mode-button"}
+                                                             onClick={toggleControlMode}/>
+                <input type="button" ref={valvePositionButtonRef} value={control.states.valvePosition}
                         id={"valve-position-button"}
-                        onClick={toggleValvePosition}/>}
-                {<input type="button" ref={dataTransmissionModeButtonRef} value={control.states.dataTransmissionMode}
+                        onClick={toggleValvePosition}/>
+                <input type="button" ref={dataTransmissionModeButtonRef} value={control.states.dataTransmissionMode}
                         id={"data-transmit-mode-button"}
-                        onClick={dataTransmitModeButtonClicked}/>}
-                {<input type="button" ref={requestSettingsButtonRef} value={"Request Settings"}
+                        onClick={dataTransmitModeButtonClicked}/>
+                <input type="button" ref={requestSettingsButtonRef} value={"Request Settings"}
                         id={"request-settings-button"}
-                        onClick={requestSettings}/>}
-                {<input type="button" ref={beepButtonRef} value={"Beep!"} id={"beep-button"} onClick={beep}/>}
-                {<input type="button" ref={powerOffButtonRef} value={"Power Off"} id={"power-off-button"}
-                        onClick={powerOff}/>}
+                        onClick={requestSettings}/>
+                <input type="button" ref={beepButtonRef} value={"Beep!"} id={"beep-button"} onClick={beep}/>
+                <input type="button" ref={powerOffButtonRef} value={"Power Off"} id={"power-off-button"}
+                        onClick={powerOff}/>
             </fieldset>
         </>
     )

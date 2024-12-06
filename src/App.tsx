@@ -8,7 +8,7 @@ import {ExternalController, ExternalControlPanel, ExternalControlStates} from ".
 import {AppSettings, SETTINGS_DB, SimpleDB, SimpleResultsDB} from "./database.ts";
 import {downloadData} from "./html-data-downloader.ts";
 import {json2csv} from "json-2-csv";
-import {FTDISerial} from "./web-usb-serial-drivers.ts";
+import {FTDISerial, ProlificSerial} from "./web-usb-serial-drivers.ts";
 import {FitTestProtocolPanel} from "./FitTestProtocolPanel.tsx";
 
 
@@ -153,6 +153,9 @@ function App() {
             case "ftdi":
                 connectViaFtdi();
                 break;
+            case "prolific":
+                connectViaProlific();
+                break;
             case "web-serial":
                 connectViaWebSerial()
                 break;
@@ -211,6 +214,21 @@ function App() {
         serial.requestPort().then((port) => {
             port.open({baudRate: baudRate.toString()}).then((event) => {
                 logit(`ftdi opened ${event}`)
+                if (port.readable) {
+                    monitor(port.readable.getReader());
+                }
+                if (port.writable) {
+                    externalController.setWriter(port.writable.getWriter());
+                }
+            })
+        })
+    }
+
+    function connectViaProlific() {
+        const serial = new ProlificSerial()
+        serial.requestPort().then((port) => {
+            port.open({baudRate: baudRate}).then((event) => {
+                logit(`prolific opened ${event}`)
                 if (port.readable) {
                     monitor(port.readable.getReader());
                 }
@@ -288,6 +306,7 @@ function App() {
                 Data Source: &nbsp;
                 <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}>
                     <option value="ftdi">FTDI</option>
+                    <option value="prolific">Prolific</option>
                     <option value="web-serial">WebSerial</option>
                     <option value="simulator">Simulator</option>
                     <option value="database">Database</option>
