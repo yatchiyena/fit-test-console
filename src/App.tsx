@@ -210,8 +210,7 @@ function App() {
     function connectViaWebUsbSerial() {
         const serial = new UsbSerialDrivers()
         serial.requestPort().then((port) => {
-            port.open({baudRate: baudRate}).then((event) => {
-                logit(`prolific opened ${event}`)
+            port.open({baudRate: baudRate}).then(() => {
                 if (port.readable) {
                     monitor(port.readable.getReader());
                 }

@@ -23,6 +23,7 @@ export class UsbSerialPort {
                 this.readable = getReadableStreamFromDataSource(serial); // this starts reading immediately  :(
                 this.writable = this.driver.getWritableStreamFromDataSink();
                 resolve(serial);
+                console.log(`${this.driver.name} opened`)
             }).catch(reject)
         })
     }
