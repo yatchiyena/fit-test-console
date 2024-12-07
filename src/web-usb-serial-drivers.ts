@@ -57,6 +57,7 @@ export class UsbSerialDrivers {
 
 abstract class UsbSerialDriver implements PushSource {
     readonly options: USBDeviceRequestOptions[];
+    readonly name: string
 
     /**
      * When there is no data available, wait this amount of time before checking again.
@@ -73,6 +74,7 @@ abstract class UsbSerialDriver implements PushSource {
     abstract addEventListener(): void
 
     protected constructor(options: USBDeviceRequestOptions[]) {
+        this.name = this.constructor.name
         this.options = options;
     }
 
@@ -85,22 +87,22 @@ abstract class UsbSerialDriver implements PushSource {
                 // Implement the sink
                 write(chunk) {
                     const data = decoder.decode(chunk);
-                    console.log(`sending to ftdi: ${data}`);
+                    console.log(`sending to ${driver.name}: ${data}`);
                     return new Promise<void>((resolve, reject) => {
                         driver.write(chunk).then((res: USBOutTransferResult) => {
-                            console.log(`successfully sent to ftdi: ${res.status}, bytesWritten: ${res.bytesWritten}`);
+                            console.log(`successfully sent to ${driver.name}: ${res.status}, bytesWritten: ${res.bytesWritten}`);
                             resolve()
                         }).catch((err: string) => {
-                            console.log(`error sending to ftdi: ${err.toString()}`);
+                            console.log(`error sending to ${driver.name}: ${err.toString()}`);
                             reject(err)
                         });
                     });
                 },
                 close() {
-                    console.log("ftdi sink closed")
+                    console.log(`${driver.name} sink closed`)
                 },
                 abort(err) {
-                    console.log("ftdi Sink error:", err);
+                    console.log(`${driver.name} Sink error:`, err);
                 },
             },
             queuingStrategy
