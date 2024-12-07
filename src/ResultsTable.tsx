@@ -194,15 +194,14 @@ export function ResultsTable({dataCollector}: {
             updateData: (rowIndex, columnId, value) => {
                 // Skip page index reset until after next rerender
                 skipAutoResetPageIndex()
-                setLocalTableData(old => { // this updates the local data used by the table?
+                setLocalTableData(old => { // this updates the local data used by the table
                     const res = old.map((row, index) => {
                             if (index === rowIndex) {
                                 const updatedRow = {
                                     ...old[rowIndex]!,
                                     [columnId]: value,  // this updates the cell that was changed
                                 } as SimpleResultsDBRecord;
-                                // TODO: roll this in a function in dataCollector
-                                dataCollector.updateTest(updatedRow); // this saves the changes to the db
+                                dataCollector.updateTest(updatedRow);
                                 return updatedRow;
                             }
                             return row

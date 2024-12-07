@@ -8,7 +8,7 @@ import {ExternalController, ExternalControlPanel, ExternalControlStates} from ".
 import {AppSettings, SETTINGS_DB, SimpleDB, SimpleResultsDB} from "./database.ts";
 import {downloadData} from "./html-data-downloader.ts";
 import {json2csv} from "json-2-csv";
-import {FTDISerial, ProlificSerial} from "./web-usb-serial-drivers.ts";
+import {FTDISerial, ProlificSerial, UsbSerialDrivers} from "./web-usb-serial-drivers.ts";
 import {FitTestProtocolPanel} from "./FitTestProtocolPanel.tsx";
 
 
@@ -150,6 +150,9 @@ function App() {
 
     function connectButtonClickHandler() {
         switch (dataSource) {
+            case "web-usb-serial":
+                connectViaWebUsbSerial();
+                break;
             case "ftdi":
                 connectViaFtdi();
                 break;
@@ -239,6 +242,21 @@ function App() {
         })
     }
 
+    function connectViaWebUsbSerial() {
+        const serial = new UsbSerialDrivers()
+        serial.requestPort().then((port) => {
+            port.open({baudRate: baudRate}).then((event) => {
+                logit(`prolific opened ${event}`)
+                if (port.readable) {
+                    monitor(port.readable.getReader());
+                }
+                if (port.writable) {
+                    externalController.setWriter(port.writable.getWriter());
+                }
+            })
+        })
+
+    }
 
     function connectViaWebSerial() {
         if ("serial" in navigator) {
@@ -308,6 +326,7 @@ function App() {
                     <option value="ftdi">FTDI</option>
                     <option value="prolific">Prolific</option>
                     <option value="web-serial">WebSerial</option>
+                    <option value="web-usb-serial">Web USB Serial</option>
                     <option value="simulator">Simulator</option>
                     <option value="database">Database</option>
                 </select> &nbsp;

@@ -3572,9 +3572,8 @@ pkg-dir@^4.1.0:
   dependencies:
     find-up "^4.0.0"
 
-"pl2303@https://github.com/emcee5601/pl2303":
+pl2303@../pl2303:
   version "0.1.0"
-  resolved "https://github.com/emcee5601/pl2303#00cec5116eb1a89b5aed6f77390a7e05892eb181"
   dependencies:
     "@eslint/js" "^9.16.0"
     "@types/node" "^22.10.1"
