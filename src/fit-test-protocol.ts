@@ -58,12 +58,12 @@ export class SamplingStage {
 
 export class FitTestProtocol {
     index: number|undefined;
-    name: string| undefined;
-    fitFactorCalculationMethod: FitFactorCalculationMethod | undefined;
+    name: string;
+    fitFactorCalculationMethod: FitFactorCalculationMethod = FitFactorCalculationMethod.BeforeAndAfter;
     stages: SamplingStage[] = []
 
-    constructor(name:string|undefined = undefined,
-                fitFactorCalculationMethod = undefined) {
+    constructor(name:string,
+                fitFactorCalculationMethod = FitFactorCalculationMethod.BeforeAndAfter) {
         this.name = name;
         this.fitFactorCalculationMethod = fitFactorCalculationMethod;
     }

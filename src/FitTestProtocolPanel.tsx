@@ -9,15 +9,15 @@ import Select from "react-select";
 export function FitTestProtocolPanel() {
     const [autoResetPageIndex, skipAutoResetPageIndex] = useSkipper()
     const [protocols, setProtocols] = useState<FitTestProtocol[]>([])
-    const [protocol, setProtocol] = useState<FitTestProtocol>(new FitTestProtocol())
-    const [protocolName, setProtocolName] = useState<string>("")
+    const [protocol, setProtocol] = useState<FitTestProtocol>(new FitTestProtocol("none-selected"))
+    const [protocolName, setProtocolName] = useState<string>("none-selected")
     const [protocolStages, setProtocolStages] = useState<SamplingStage[]>([])
 
-    function getReadonlyCell(info: CellContext<SamplingStage, string | number | undefined>) {
+    function getReadonlyCell(info: CellContext<SamplingStage, string | number>) {
         return <span>{info.getValue()}</span>
     }
 
-    const columns = React.useMemo<ColumnDef<SamplingStage, string | number | undefined>[]>(
+    const columns = React.useMemo<ColumnDef<SamplingStage, string | number>[]>(
         () => [
             {
                 accessorKey: 'index',
