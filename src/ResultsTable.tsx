@@ -38,19 +38,26 @@ export function ResultsTable({dataCollector}: {
     dataCollector.setResultsCallback(setLocalTableData)
 
     function getExerciseResultCell(info: CellContext<SimpleResultsDBRecord, string | number>) {
-        const val = info.getValue<number>();
-        if (val < 1.1) {
+        const fitFactor = info.getValue<number>();
+        const efficiencyPercentage: string = Number(100 * (1.0 - 1.0 / fitFactor)).toFixed(3)
+        if (fitFactor < 1.1) {
             // probably aborted
-            return <span className={"aborted result"}>{val}</span>
-        } else if (val < 20) {
-            return <span className={"result"} style={{backgroundColor: "darkred", color: "whitesmoke"}}>{val}</span>
-        } else if (val < 100) {
-            return <span className={"result"} style={{backgroundColor: "darkorange", color: "whitesmoke"}}>{val}</span>
-        } else if (val >= 100) {
-            return <span className={"result"} style={{backgroundColor: "green", color: "whitesmoke"}}>{val}</span>
+            return <span className={"aborted result"}>{fitFactor}</span>
+        } else if (fitFactor < 20) {
+            return <span className={"result"}
+                         style={{backgroundColor: "darkred", color: "whitesmoke"}}>{fitFactor}<br/><span
+                className={"efficiency"}>{efficiencyPercentage}%</span></span>
+        } else if (fitFactor < 100) {
+            return <span className={"result"}
+                         style={{backgroundColor: "darkorange", color: "whitesmoke"}}>{fitFactor}<br/><span
+                className={"efficiency"}>{efficiencyPercentage}%</span></span>
+        } else if (fitFactor >= 100) {
+            return <span className={"result"}
+                         style={{backgroundColor: "green", color: "whitesmoke"}}>{fitFactor}<br/><span
+                className={"efficiency"}>{efficiencyPercentage}%</span></span>
         } else {
             // NaN
-            return <span className={"aborted result"}>{val}</span>
+            return <span className={"aborted result"}>{fitFactor}</span>
         }
     }
 
@@ -125,7 +132,7 @@ export function ResultsTable({dataCollector}: {
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
                 sortDescFirst: true,
-                size: 50,
+                size: 70,
             },
             {
                 accessorKey: 'Ex 2',
@@ -134,7 +141,7 @@ export function ResultsTable({dataCollector}: {
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
                 sortDescFirst: true,
-                size: 50,
+                size: 70,
             },
             {
                 accessorKey: 'Ex 3',
@@ -143,7 +150,7 @@ export function ResultsTable({dataCollector}: {
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
                 sortDescFirst: true,
-                size: 50,
+                size: 70,
             },
             {
                 accessorKey: 'Ex 4',
@@ -152,7 +159,7 @@ export function ResultsTable({dataCollector}: {
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
                 sortDescFirst: true,
-                size: 50,
+                size: 70,
             },
             {
                 accessorKey: 'Final',
@@ -161,7 +168,7 @@ export function ResultsTable({dataCollector}: {
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
                 sortDescFirst: true,
-                size: 50,
+                size: 70,
             },
         ],
         []

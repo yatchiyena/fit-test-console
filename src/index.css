@@ -107,6 +107,10 @@ td.results {
   width: 100%;
   /*padding: 0.5rem;*/
 }
+.efficiency {
+  font-size: smaller;
+  padding: 0.3em;
+}
 
 .pass {
   background-color: green;
