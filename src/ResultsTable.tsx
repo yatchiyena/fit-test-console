@@ -20,7 +20,7 @@ import {
 } from '@tanstack/react-table'
 
 import {useVirtualizer} from '@tanstack/react-virtual'
-import {SimpleResultsDBRecord} from "./database.ts";
+import {AppSettings, SETTINGS_DB, SimpleResultsDBRecord} from "./database.ts";
 import {download, generateCsv, mkConfig} from "export-to-csv";
 import {DataCollector} from "./data-collector.tsx";
 import {createMailtoLink} from "./html-data-downloader.ts";
@@ -37,24 +37,24 @@ export function ResultsTable({dataCollector}: {
     const [localTableData, setLocalTableData] = useState<SimpleResultsDBRecord[]>([])
     dataCollector.setResultsCallback(setLocalTableData)
 
-    function getExerciseResultCell(info: CellContext<SimpleResultsDBRecord, string|number>) {
+    function getExerciseResultCell(info: CellContext<SimpleResultsDBRecord, string | number>) {
         const val = info.getValue<number>();
-        if( val < 1.1) {
+        if (val < 1.1) {
             // probably aborted
             return <span className={"aborted result"}>{val}</span>
-        } else if( val < 20) {
-            return <span className={"result"} style={{backgroundColor:"darkred", color:"whitesmoke"}}>{val}</span>
+        } else if (val < 20) {
+            return <span className={"result"} style={{backgroundColor: "darkred", color: "whitesmoke"}}>{val}</span>
         } else if (val < 100) {
-            return <span className={"result"} style={{backgroundColor:"darkorange", color:"whitesmoke"}}>{val}</span>
+            return <span className={"result"} style={{backgroundColor: "darkorange", color: "whitesmoke"}}>{val}</span>
         } else if (val >= 100) {
-            return <span className={"result"} style={{backgroundColor:"green", color:"whitesmoke"}}>{val}</span>
+            return <span className={"result"} style={{backgroundColor: "green", color: "whitesmoke"}}>{val}</span>
         } else {
             // NaN
             return <span className={"aborted result"}>{val}</span>
         }
     }
 
-    function compareNumericString(rowA:Row<SimpleResultsDBRecord>, rowB:Row<SimpleResultsDBRecord>, id:string) {
+    function compareNumericString(rowA: Row<SimpleResultsDBRecord>, rowB: Row<SimpleResultsDBRecord>, id: string) {
         let a = Number.parseFloat(rowA.getValue(id));
         let b = Number.parseFloat(rowB.getValue(id));
         if (Number.isNaN(a)) {  // Blanks and non-numeric strings to bottom
@@ -92,7 +92,7 @@ export function ResultsTable({dataCollector}: {
                     return (row.getValue(columnId) as string).startsWith(filterValue);
                 },
                 meta: {
-                  filterVariant: 'date',
+                    filterVariant: 'date',
                 },
                 size: 200,
             },
@@ -124,7 +124,7 @@ export function ResultsTable({dataCollector}: {
                 enableColumnFilter: false,
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
-                sortDescFirst:true,
+                sortDescFirst: true,
                 size: 50,
             },
             {
@@ -133,7 +133,7 @@ export function ResultsTable({dataCollector}: {
                 enableColumnFilter: false,
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
-                sortDescFirst:true,
+                sortDescFirst: true,
                 size: 50,
             },
             {
@@ -142,7 +142,7 @@ export function ResultsTable({dataCollector}: {
                 enableColumnFilter: false,
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
-                sortDescFirst:true,
+                sortDescFirst: true,
                 size: 50,
             },
             {
@@ -151,7 +151,7 @@ export function ResultsTable({dataCollector}: {
                 enableColumnFilter: false,
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
-                sortDescFirst:true,
+                sortDescFirst: true,
                 size: 50,
             },
             {
@@ -160,7 +160,7 @@ export function ResultsTable({dataCollector}: {
                 enableColumnFilter: false,
                 sortUndefined: undefined,
                 sortingFn: compareNumericString,
-                sortDescFirst:true,
+                sortDescFirst: true,
                 size: 50,
             },
         ],
@@ -169,12 +169,7 @@ export function ResultsTable({dataCollector}: {
 
     const [autoResetPageIndex, skipAutoResetPageIndex] = useSkipper()
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-    const [sorting, setSorting] = useState<SortingState>([
-        {
-            id: 'ID',
-            desc: true,
-        }
-    ])
+    const [sorting, setSorting] = useState<SortingState>([])
 
     const table = useReactTable({
         data: localTableData,
@@ -215,7 +210,7 @@ export function ResultsTable({dataCollector}: {
     })
 
     const {rows} = table.getRowModel()
-    const dates:Date[] = [new Date(), ...new Set<Date>(localTableData.map((row) => new Date(row.Time)))]
+    const dates: Date[] = [new Date(), ...new Set<Date>(localTableData.map((row) => new Date(row.Time)))]
 
     //The virtualizer needs to know the scrollable container element
     const tableContainerRef = React.useRef<HTMLDivElement>(null)
@@ -241,6 +236,23 @@ export function ResultsTable({dataCollector}: {
         }));
     }, [dataCollector.resultsDatabase]);
 
+    useEffect(() => {
+        SETTINGS_DB.open().then(() => {
+            SETTINGS_DB.getSetting<SortingState>(
+                AppSettings.RESULTS_TABLE_SORT,
+                [{
+                    id: 'ID',
+                    desc: true,
+                }]
+            ).then((results) => {
+                setSorting((prev) => results ? results : prev)
+            })
+        })
+    }, []);
+
+    useEffect(() => {
+        SETTINGS_DB.saveSetting(AppSettings.RESULTS_TABLE_SORT, sorting)
+    }, [sorting]);
 
     function handleExportAsCsv() {
         const csvConfig = mkConfig({
@@ -260,13 +272,13 @@ export function ResultsTable({dataCollector}: {
         // can't have html body, so we'll construct something that's easily readable (not csv)
 
         const rows = table.getSortedRowModel().rows
-        const rowData:SimpleResultsDBRecord[] = rows.map((row) => row.original)
+        const rowData: SimpleResultsDBRecord[] = rows.map((row) => row.original)
         let body = "Your fit test results:\n\n"
         const fields = ['Time', 'Participant', 'Mask', 'Notes', 'Ex 1', 'Ex 2', 'Ex 3', 'Ex 4', 'Final'];
         rowData.forEach((row) => {
-            const rowInfo:string[] = []
+            const rowInfo: string[] = []
             fields.forEach((key) => {
-                if(key in row) {
+                if (key in row) {
                     rowInfo.push(`${key}: ${row[key]}`)
                 }
             })
@@ -274,7 +286,7 @@ export function ResultsTable({dataCollector}: {
             body = body + rowInfo.join("\n") + "\n\n"
         })
 
-        const link = createMailtoLink( "", "Fit test results", body);
+        const link = createMailtoLink("", "Fit test results", body);
         link.click()
     }
 
@@ -394,7 +406,7 @@ export function ResultsTable({dataCollector}: {
 
 function Filter<V>({column, dates}: { column: Column<SimpleResultsDBRecord, V>, dates: Date[] }) {
     const columnFilterValue = column.getFilterValue()
-    const { filterVariant } = column.columnDef.meta ?? {}
+    const {filterVariant} = column.columnDef.meta ?? {}
 
     switch (filterVariant) {
         case 'range':
@@ -435,7 +447,7 @@ function Filter<V>({column, dates}: { column: Column<SimpleResultsDBRecord, V>, 
             </select>
         case 'date': {
             const curFilter = column.getFilterValue() as string;
-            const selectedDate = curFilter? new Date(curFilter) : null;
+            const selectedDate = curFilter ? new Date(curFilter) : null;
             return <DatePicker minDate={new Date("2024-01-01")} maxDate={new Date()}
                                isClearable={true}
                                placeholderText={"Search..."}
@@ -444,7 +456,7 @@ function Filter<V>({column, dates}: { column: Column<SimpleResultsDBRecord, V>, 
                                showIcon={true}
                                showDisabledMonthNavigation={true}
                                className={'datePickerInput'}
-                               todayButton={<input type={"button"} value={"Today"} />}
+                               todayButton={<input type={"button"} value={"Today"}/>}
                                onChange={(value) => column.setFilterValue(value?.toLocaleDateString())}
             ></DatePicker>
         }
@@ -487,6 +499,6 @@ function DebouncedInput({
     }, [value])
 
     return (
-        <input {...props} value={value} onChange={e => setValue(e.target.value)} />
+        <input {...props} value={value} onChange={e => setValue(e.target.value)}/>
     )
 }

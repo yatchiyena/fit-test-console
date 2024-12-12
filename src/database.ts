@@ -19,6 +19,7 @@ export enum AppSettings {
     SPEECH_ENABLED = "speech-enabled",
     ADVANCED_MODE = "advanced-mode",
     SPEECH_VOICE = "speech-voice",
+    RESULTS_TABLE_SORT = "results-table-sort",
 }
 
 
@@ -38,13 +39,13 @@ class SettingsDB extends AbstractDB {
         theDb.createObjectStore(SettingsDB.OBJECT_STORE_NAME, {keyPath: "ID"});
     }
 
-    public async getSetting(name:AppSettings, defaultValue:string|boolean|number|undefined) {
+    public async getSetting<T>(name:AppSettings, defaultValue:T) {
         const transaction = this.openTransactionClassic("readonly");
         if (!transaction) {
             return undefined;
         }
         const request = transaction.objectStore(SettingsDB.OBJECT_STORE_NAME).get(name)
-        return new Promise<boolean|string|number|undefined>((resolve, reject) => {
+        return new Promise<T>((resolve, reject) => {
             request.onerror = (event) => {
                 const errorMessage = `failed to get setting for ${name}; error: ${event}`;
                 console.log(errorMessage);
@@ -62,7 +63,7 @@ class SettingsDB extends AbstractDB {
         });
     }
 
-    async saveSetting(name:AppSettings, value: string|number|boolean) {
+    async saveSetting<T>(name:AppSettings, value:T) {
         console.log(`saving setting ${name} = ${value}`)
         const transaction = this.openTransactionClassic("readwrite");
         if (!transaction) {
