@@ -52,12 +52,16 @@ export class DataCollector {
     private control: ExternalControlStates;
     states: DataCollectorStates;
     private setResults: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>>|undefined;
+    private verboseSpeech: boolean
+    private sayParticleCount: boolean
 
     constructor(states: DataCollectorStates,
                 logCallback: (message: string) => void,
                 dataCallback: (message: string) => void,
                 processedDataCallback: (message: string) => void,
                 externalControlStates: ExternalControlStates,
+                verboseSpeech: boolean,
+                sayParticleCount: boolean,
                 resultsDatabase: SimpleResultsDB) {
         this.logCallback = logCallback;
         this.dataCallback = dataCallback;
@@ -65,6 +69,8 @@ export class DataCollector {
         this.resultsDatabase = resultsDatabase;
         this.settingsDatabase = SETTINGS_DB;
         this.control = externalControlStates;
+        this.verboseSpeech = verboseSpeech;
+        this.sayParticleCount = sayParticleCount;
         this.states = states;
         console.log("DataCollector constructor called")
     }
@@ -93,15 +99,6 @@ export class DataCollector {
             4: "Head movement. Look up, down, left, and right. Repeat."
         }
         this.setInstructions(`Perform exercise ${exerciseNum}: ${exerciseInstructionsLookup[exerciseNum]}`);
-    }
-
-
-    speechVerbose() {
-        return (document.getElementById("enable-verbose-speech-checkbox") as HTMLInputElement).checked;
-    }
-
-    shouldSayParticleCount() {
-        return (document.getElementById("speak-concentration-checkbox") as HTMLInputElement).checked;
     }
 
     processLine(line: string) {
@@ -207,10 +204,10 @@ export class DataCollector {
         if (match) {
             const concentration = Number(match.groups?.concentration);
             if (!speech.isSayingSomething()) {
-                if (this.shouldSayParticleCount()) {
+                if (this.sayParticleCount) {
                     const intConcentration = Math.ceil(concentration);
                     const roundedConcentration = intConcentration < 20 ? (Math.ceil(concentration * 10) / 10).toFixed(1) : intConcentration;
-                    const message = this.speechVerbose() ? `Particle count is ${roundedConcentration}` : roundedConcentration.toString();
+                    const message = this.verboseSpeech ? `Particle count is ${roundedConcentration}` : roundedConcentration.toString();
                     speech.sayIt(message);
                 }
             }

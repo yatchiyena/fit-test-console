@@ -19,6 +19,8 @@ export enum AppSettings {
     SPEECH_ENABLED = "speech-enabled",
     ADVANCED_MODE = "advanced-mode",
     SPEECH_VOICE = "speech-voice",
+    VERBOSE = "verbose",
+    SAY_PARTICLE_COUNT = "say-particle-count",
     RESULTS_TABLE_SORT = "results-table-sort",
 }
 

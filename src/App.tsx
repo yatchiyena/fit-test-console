@@ -39,6 +39,8 @@ function App() {
     const [externalController] = useState(new ExternalController(externalControlStates));
     const [resultsDatabase] = useState(() => new SimpleResultsDB());
     const [rawDatabase] = useState(() => new SimpleDB());
+    const [verboseSpeech, setVerboseSpeech] = useState<boolean>(false);
+    const [sayParticleCount, setSayParticleCount] = useState<boolean>(false);
 
     const initialDataCollectorState: DataCollectorStates = {
         setInstructions: null,
@@ -52,7 +54,7 @@ function App() {
     };
     const [dataCollectorStates] = useState(initialDataCollectorState);
     const [dataCollector] = useState(() => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
-        processedDataCallback, externalControlStates, resultsDatabase))
+        processedDataCallback, externalControlStates, verboseSpeech, sayParticleCount, resultsDatabase))
 
     useEffect(() => {
         SETTINGS_DB.open().then(() => {
@@ -60,6 +62,12 @@ function App() {
             SETTINGS_DB.getSetting(AppSettings.ADVANCED_MODE, false).then((value) => {
                 console.log(`app retrieved advanced mode setting: ${value}`)
                 setEnableAdvancedControls(() => value as boolean)
+            })
+            SETTINGS_DB.getSetting(AppSettings.VERBOSE, false).then((value) => {
+                setVerboseSpeech(value as boolean)
+            })
+            SETTINGS_DB.getSetting(AppSettings.SAY_PARTICLE_COUNT, false).then((value) => {
+                setSayParticleCount(value as boolean)
             })
         })
     }, []);
@@ -76,6 +84,13 @@ function App() {
             AppSettings.ADVANCED_MODE, enableAdvancedControls
         )
     }, [enableAdvancedControls]);
+
+    useEffect(() => {
+        SETTINGS_DB.saveSetting(AppSettings.VERBOSE, verboseSpeech)
+    }, [verboseSpeech]);
+    useEffect(() => {
+        SETTINGS_DB.saveSetting(AppSettings.SAY_PARTICLE_COUNT, sayParticleCount)
+    }, [sayParticleCount]);
 
     useEffect(() => {
         // need to propagate these down?
@@ -305,11 +320,11 @@ function App() {
             <fieldset style={{maxWidth: "fit-content", float: "left"}}>
                 <SpeechSynthesisPanel/>
                 <div style={{display: "inline-block"}}>
-                    <input type="checkbox" id="enable-verbose-speech-checkbox"/>
+                    <input type="checkbox" id="enable-verbose-speech-checkbox" checked={verboseSpeech} onChange={event => {setVerboseSpeech(event.target.checked)}}/>
                     <label htmlFor="enable-verbose-speech-checkbox">Verbose</label>
                 </div>
                 <div style={{display: "inline-block"}}>
-                    <input type="checkbox" id="speak-concentration-checkbox"/>
+                    <input type="checkbox" id="speak-concentration-checkbox" checked={sayParticleCount} onChange={event => {setSayParticleCount(event.target.checked)}}/>
                     <label htmlFor="speak-concentration-checkbox">Say particle count</label>
                 </div>
                 <div style={{display: "inline-block"}}>

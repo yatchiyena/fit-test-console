@@ -1,6 +1,6 @@
 let theSelectedVoice: SpeechSynthesisVoice | null = null;
 const speechRate: number = 1;
-let theSpeechEnabled: boolean = true;
+let theSpeechEnabled: boolean = false;
 let allVoices: SpeechSynthesisVoice[] = [];
 const speechSynthesis: SpeechSynthesis = window.speechSynthesis;
 
