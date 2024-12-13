@@ -28,6 +28,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import {useEditableColumn} from "./use-editable-column-hook.tsx";
 import {useSkipper} from "./use-skipper-hook.ts";
+import {convertFitFactorToFiltrationEfficiency, getFitFactorCssClass} from "./utils.ts";
 
 //This is a dynamic row height example, which is more complicated, but allows for a more realistic table.
 //See https://tanstack.com/virtual/v3/docs/examples/react/table for a simpler fixed row height example.
@@ -39,27 +40,12 @@ export function ResultsTable({dataCollector}: {
 
     function getExerciseResultCell(info: CellContext<SimpleResultsDBRecord, string | number>) {
         const fitFactor = info.getValue<number>();
-        const efficiency = 100 * (1.0 - 1.0 / fitFactor);
-        const efficiencyPercentage: string = Number(efficiency).toFixed(efficiency < 99 ? 0 : 3)
-        if (fitFactor < 1.1) {
-            // probably aborted
-            return <span className={"aborted result"}>{fitFactor}</span>
-        } else if (fitFactor < 20) {
-            return <span className={"result"}
-                         style={{backgroundColor: "darkred", color: "whitesmoke"}}>{fitFactor}<br/><span
-                className={"efficiency"}>{efficiencyPercentage}%</span></span>
-        } else if (fitFactor < 100) {
-            return <span className={"result"}
-                         style={{backgroundColor: "darkorange", color: "whitesmoke"}}>{fitFactor}<br/><span
-                className={"efficiency"}>{efficiencyPercentage}%</span></span>
-        } else if (fitFactor >= 100) {
-            return <span className={"result"}
-                         style={{backgroundColor: "green", color: "whitesmoke"}}>{fitFactor}<br/><span
-                className={"efficiency"}>{efficiencyPercentage}%</span></span>
-        } else {
-            // NaN
-            return <span className={"aborted result"}>{fitFactor}</span>
-        }
+
+        const efficiencyPercentage = convertFitFactorToFiltrationEfficiency(fitFactor);
+        const classes = getFitFactorCssClass(fitFactor)
+        return <span className={classes}>{fitFactor}<br/>{fitFactor>0 && <span
+            className={"efficiency"}>{efficiencyPercentage}%</span>}
+        </span>
     }
 
     function compareNumericString(rowA: Row<SimpleResultsDBRecord>, rowB: Row<SimpleResultsDBRecord>, id: string) {

@@ -126,3 +126,17 @@ td.results {
   background-color: gray;
   text-align: center;
 }
+
+.low-fit-score {
+  background-color: darkred;
+  color: whitesmoke;
+}
+.moderate-fit-score {
+  background-color: darkorange;
+  color: whitesmoke;
+}
+.high-fit-score {
+  background-color: green;
+  color: whitesmoke
+}
+

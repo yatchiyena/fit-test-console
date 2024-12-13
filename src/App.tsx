@@ -10,6 +10,7 @@ import {downloadData} from "./html-data-downloader.ts";
 import {json2csv} from "json-2-csv";
 import {UsbSerialDrivers} from "./web-usb-serial-drivers.ts";
 import {FitTestProtocolPanel} from "./FitTestProtocolPanel.tsx";
+import {convertFitFactorToFiltrationEfficiency, getFitFactorCssClass} from "./utils.ts";
 
 
 function App() {
@@ -42,9 +43,13 @@ function App() {
     const [verboseSpeech, setVerboseSpeech] = useDBSetting<boolean>(AppSettings.VERBOSE, false);
     const [sayParticleCount, setSayParticleCount] = useDBSetting<boolean>(AppSettings.SAY_PARTICLE_COUNT, false);
     const [autoEstimateFitFactor, setAutoEstimateFitFactor] = useDBSetting<boolean>(AppSettings.AUTO_ESTIMATE_FIT_FACTOR, false)
+    const [instructions, setInstructions] = useState<string>("")
+    const [estimatedFitFactor, setEstimatedFitFactor] = useState<number>(1)
+    const [ambientConcentration, setAmbientConcentration] = useState<number>(1234)
+    const [maskConcentration, setMaskConcentration] = useState<number>(23)
 
     const initialDataCollectorState: DataCollectorStates = {
-        setInstructions: null,
+        setInstructions: setInstructions,
         logData: logData,
         setLogData: setLogData,
         rawConsoleData: rawConsoleData,
@@ -54,6 +59,9 @@ function App() {
         fitTestDataTableRef: fitTestDataTableRef,
         verboseSpeech: verboseSpeech,
         sayParticleCount: sayParticleCount,
+        setEstimatedFitFactor: setEstimatedFitFactor,
+        setAmbientConcentration: setAmbientConcentration,
+        setMaskConcentration: setMaskConcentration,
     };
     const [dataCollectorStates] = useState(initialDataCollectorState);
     const [dataCollector] = useState(() => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
@@ -65,6 +73,10 @@ function App() {
 
         return () => rawDatabase.close();
     }, [rawDatabase]);
+
+    useEffect(() => {
+        console.log(`estimated fit factor changed to ${estimatedFitFactor}`)
+    }, [estimatedFitFactor]);
 
     useEffect(() => {
         // need to propagate these down?
@@ -330,6 +342,38 @@ function App() {
                         <FitTestProtocolPanel></FitTestProtocolPanel>
                     </fieldset>
                 </section> : null}
+            <section style={{display: "inline-flex", width: "100%"}}>
+                <fieldset style={{display: "inline-block"}}>
+                    <legend>Estimated Fit Factor</legend>
+                    <fieldset style={{display: "inline-block"}}>
+                        <legend>Ambient</legend>
+                        <span>{ambientConcentration}</span>
+                    </fieldset>
+                    <fieldset style={{display: "inline-block"}}>
+                        <legend>Mask</legend>
+                        <span>{maskConcentration}</span>
+                    </fieldset>
+                    <div className={getFitFactorCssClass(estimatedFitFactor)}
+                         style={{width: '100%', height: '100%', alignContent: 'center', fontSize: "1.7rem"}}>
+                        <span>{estimatedFitFactor}</span>
+                        <br/>
+                        <span
+                            style={{fontSize: "smaller"}}>({convertFitFactorToFiltrationEfficiency(estimatedFitFactor)}%)</span>
+                    </div>
+                </fieldset>
+                <fieldset style={{display: "inline-block", flexGrow: 1}}>
+                    <legend>Instructions</legend>
+                    <textarea id="instructions" readOnly={true} style={{
+                        width: "100%",
+                        minHeight: "3rem",
+                        height: "fit-content",
+                        fontSize: "xxx-large",
+                        overflow: "auto",
+                        resize: "vertical",
+                        border: "none"
+                    }} value={instructions}></textarea>
+                </fieldset>
+            </section>
             <DataCollectorPanel dataCollector={dataCollector}></DataCollectorPanel>
         </>
     )

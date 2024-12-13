@@ -203,13 +203,16 @@ export class DataCollector {
                     const roundedConcentration = intConcentration < 20 ? (Math.ceil(concentration * 10) / 10).toFixed(1) : intConcentration;
                     const message = this.states.verboseSpeech ? `Particle count is ${roundedConcentration}` : roundedConcentration.toString();
                     speech.sayIt(message);
+
                 }
             }
             if (line.match(DataCollector.EXTERNAL_CONTROL_PARTICLE_COUNT_PATTERN)) {
                 this.appendToProcessedData(`${this.sampleSource}: ${concentration}\n`)
             }
-        }
 
+            // remove me
+            this.states.setEstimatedFitFactor(concentration)
+        }
     }
 
     recordTestComplete(ff: number) {
@@ -309,6 +312,18 @@ export class DataCollector {
         this.resultsDatabase.updateTest(this.currentTestData);
     }
 
+    /**
+     * Given this new concentration number, maybe update the auto-detected ambient value.
+     * Ambient values are assumed to be higher than mask values. We'll assume that ambient numbers are also reasonably
+     * stable.  So after 4 seconds or so of stable high values, we'll update the auto-detected ambient value.
+     * @param concentration
+     */
+    maybeUpdateAutoDetectedAmbient(concentration: number) {
+        
+
+    }
+
+    // todo: use DataCollectorStates instead
     setResultsCallback(callback: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>>) {
         this.setResults = callback
     }
@@ -326,6 +341,9 @@ export interface DataCollectorStates {
     fitTestDataTableRef: RefObject<HTMLTableElement>,
     sayParticleCount: boolean,
     verboseSpeech: boolean,
+    setEstimatedFitFactor: React.Dispatch<React.SetStateAction<number>>,
+    setAmbientConcentration: React.Dispatch<React.SetStateAction<number>>,
+    setMaskConcentration: React.Dispatch<React.SetStateAction<number>>,
 }
 
 export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollector }) {
@@ -333,12 +351,9 @@ export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollect
     const rawConsoleDataTextAreaRef = React.useRef<HTMLTextAreaElement>(null)
     const [logData, setLogData] = useState<string>("")
     const logDataTextAreaRef = React.useRef<HTMLTextAreaElement>(null)
-    const [instructions, setInstructions] = useState<string>("")
-    const instructionsElementRef = React.useRef<HTMLTextAreaElement>(null);
     const [processedData, setProcessedData] = useState<string>("")
     const processedDataTextAreaRef = React.useRef<HTMLTextAreaElement>(null)
 
-    dataCollector.states.setInstructions = setInstructions
     useEffect(() => {
         setRawConsoleData(dataCollector.states.rawConsoleData);
     }, [dataCollector.states.rawConsoleData]);
@@ -351,20 +366,6 @@ export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollect
 
     return (
         <>
-            <section style={{display: "inline-block", width: "100%"}}>
-                <fieldset>
-                    <legend>Instructions</legend>
-                    <textarea ref={instructionsElementRef} id="instructions" readOnly={true} style={{
-                        width: "100%",
-                        minHeight: "3rem",
-                        height: "fit-content",
-                        fontSize: "xxx-large",
-                        overflow: "auto",
-                        resize: "vertical",
-                        border: "none"
-                    }} value={instructions}></textarea>
-                </fieldset>
-            </section>
             <section id="collected-data" style={{display: "inline-block", width: "100%"}} >
                 <fieldset>
                     <legend>Fit Test Info</legend>
