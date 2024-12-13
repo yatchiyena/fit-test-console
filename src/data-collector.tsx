@@ -52,16 +52,12 @@ export class DataCollector {
     private control: ExternalControlStates;
     states: DataCollectorStates;
     private setResults: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>>|undefined;
-    private verboseSpeech: boolean
-    private sayParticleCount: boolean
 
     constructor(states: DataCollectorStates,
                 logCallback: (message: string) => void,
                 dataCallback: (message: string) => void,
                 processedDataCallback: (message: string) => void,
                 externalControlStates: ExternalControlStates,
-                verboseSpeech: boolean,
-                sayParticleCount: boolean,
                 resultsDatabase: SimpleResultsDB) {
         this.logCallback = logCallback;
         this.dataCallback = dataCallback;
@@ -69,8 +65,6 @@ export class DataCollector {
         this.resultsDatabase = resultsDatabase;
         this.settingsDatabase = SETTINGS_DB;
         this.control = externalControlStates;
-        this.verboseSpeech = verboseSpeech;
-        this.sayParticleCount = sayParticleCount;
         this.states = states;
         console.log("DataCollector constructor called")
     }
@@ -204,10 +198,10 @@ export class DataCollector {
         if (match) {
             const concentration = Number(match.groups?.concentration);
             if (!speech.isSayingSomething()) {
-                if (this.sayParticleCount) {
+                if (this.states.sayParticleCount) {
                     const intConcentration = Math.ceil(concentration);
                     const roundedConcentration = intConcentration < 20 ? (Math.ceil(concentration * 10) / 10).toFixed(1) : intConcentration;
-                    const message = this.verboseSpeech ? `Particle count is ${roundedConcentration}` : roundedConcentration.toString();
+                    const message = this.states.verboseSpeech ? `Particle count is ${roundedConcentration}` : roundedConcentration.toString();
                     speech.sayIt(message);
                 }
             }
@@ -330,6 +324,8 @@ export interface DataCollectorStates {
     processedData: string,
     setProcessedData: React.Dispatch<React.SetStateAction<string>>,
     fitTestDataTableRef: RefObject<HTMLTableElement>,
+    sayParticleCount: boolean,
+    verboseSpeech: boolean,
 }
 
 export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollector }) {

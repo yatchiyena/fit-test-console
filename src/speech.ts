@@ -1,15 +1,17 @@
-let theSelectedVoice: SpeechSynthesisVoice | null = null;
-const speechRate: number = 1;
-let theSpeechEnabled: boolean = false;
-let allVoices: SpeechSynthesisVoice[] = [];
-const speechSynthesis: SpeechSynthesis = window.speechSynthesis;
-
-
+/**
+ * 
+ */
 export const speech = new class {
+    private readonly synth: SpeechSynthesis = window.speechSynthesis;
+    private speechEnabled: boolean = false;
+    private allVoices: SpeechSynthesisVoice[] = [];
+    private selectedVoice: SpeechSynthesisVoice | null = null;
+    private speechRate: number = 1;
+
     constructor() {
-        this.updateVoiceList(speechSynthesis.getVoices());
-        speechSynthesis.onvoiceschanged = () => {
-            this.updateVoiceList(speechSynthesis.getVoices());
+        this.updateVoiceList(this.synth.getVoices());
+        this.synth.onvoiceschanged = () => {
+            this.updateVoiceList(this.synth.getVoices());
         };
     }
 
@@ -18,27 +20,27 @@ export const speech = new class {
      * @param voices
      */
     private updateVoiceList(voices: SpeechSynthesisVoice[]) {
-        allVoices = voices.filter((voice) => {
+        this.allVoices = voices.filter((voice) => {
             // console.log(`voice ${voice.name} has lang ${voice.lang}`);
             return voice.lang.startsWith("en")
         }).sort((a, b) => `${a.lang} ${a.name}`.localeCompare(`${b.lang} ${b.name}`));
     }
 
     public setSelectedVoice(voice: SpeechSynthesisVoice) {
-        theSelectedVoice = voice
+        this.selectedVoice = voice
     }
     public getSelectedVoice() {
-        return theSelectedVoice
+        return this.selectedVoice
     }
     public getAllVoices() {
-        return allVoices;
+        return this.allVoices;
     }
 
     public setSpeechEnabled(enabled: boolean) {
-        theSpeechEnabled = enabled
+        this.speechEnabled = enabled
     }
     public isSayingSomething() {
-        return speechSynthesis.speaking;
+        return this.synth.speaking;
     }
 
     /**
@@ -46,33 +48,33 @@ export const speech = new class {
      * @param message
      */
     public sayItLater(message: string) {
-        if (!theSpeechEnabled) {
+        if (!this.speechEnabled) {
             return;
         }
         console.log(`say it later: ${message}`)
         const utterThis = new SpeechSynthesisUtterance(message);
-        utterThis.voice = theSelectedVoice;
-        utterThis.rate = speechRate;
+        utterThis.voice = this.selectedVoice;
+        utterThis.rate = this.speechRate;
 
-        speechSynthesis.speak(utterThis); // this enqueues
+        this.synth.speak(utterThis); // this enqueues
     }
 
     public sayIt(message: string) {
-        if (!theSpeechEnabled) {
+        if (!this.speechEnabled) {
             return;
         }
-        console.log(`using ${theSelectedVoice?.name} say it ${message}`)
+        console.log(`using ${this.selectedVoice?.name} say it ${message}`)
         const utterThis = new SpeechSynthesisUtterance(message);
-        utterThis.voice = theSelectedVoice;
-        utterThis.rate = speechRate;
+        utterThis.voice = this.selectedVoice;
+        utterThis.rate = this.speechRate;
 
-        if (speechSynthesis.speaking) {
-            speechSynthesis.cancel(); // stop current utterance
+        if (this.synth.speaking) {
+            this.synth.cancel(); // stop current utterance
             // chrome needs a delay here for some reason, otherwise speak doesn't do anything.
             // 60 ms seems to be around the minimum delay
-            setTimeout(() => speechSynthesis.speak(utterThis), 60)
+            setTimeout(() => this.synth.speak(utterThis), 60)
         } else {
-            speechSynthesis.speak(utterThis);
+            this.synth.speak(utterThis);
         }
     }
 }

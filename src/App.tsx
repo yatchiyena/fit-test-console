@@ -51,10 +51,12 @@ function App() {
         processedData: processedData,
         setProcessedData: setProcessedData,
         fitTestDataTableRef: fitTestDataTableRef,
+        verboseSpeech: verboseSpeech,
+        sayParticleCount: sayParticleCount,
     };
     const [dataCollectorStates] = useState(initialDataCollectorState);
     const [dataCollector] = useState(() => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
-        processedDataCallback, externalControlStates, verboseSpeech, sayParticleCount, resultsDatabase))
+        processedDataCallback, externalControlStates, resultsDatabase))
 
     useEffect(() => {
         SETTINGS_DB.open().then(() => {
@@ -87,9 +89,11 @@ function App() {
 
     useEffect(() => {
         SETTINGS_DB.saveSetting(AppSettings.VERBOSE, verboseSpeech)
+        dataCollectorStates.verboseSpeech = verboseSpeech
     }, [verboseSpeech]);
     useEffect(() => {
         SETTINGS_DB.saveSetting(AppSettings.SAY_PARTICLE_COUNT, sayParticleCount)
+        dataCollectorStates.sayParticleCount = sayParticleCount
     }, [sayParticleCount]);
 
     useEffect(() => {
