@@ -39,7 +39,8 @@ export function ResultsTable({dataCollector}: {
 
     function getExerciseResultCell(info: CellContext<SimpleResultsDBRecord, string | number>) {
         const fitFactor = info.getValue<number>();
-        const efficiencyPercentage: string = Number(100 * (1.0 - 1.0 / fitFactor)).toFixed(3)
+        const efficiency = 100 * (1.0 - 1.0 / fitFactor);
+        const efficiencyPercentage: string = Number(efficiency).toFixed(efficiency < 99 ? 0 : 3)
         if (fitFactor < 1.1) {
             // probably aborted
             return <span className={"aborted result"}>{fitFactor}</span>
