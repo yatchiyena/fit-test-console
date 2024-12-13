@@ -20,7 +20,7 @@ import {
 } from '@tanstack/react-table'
 
 import {useVirtualizer} from '@tanstack/react-virtual'
-import {AppSettings, SETTINGS_DB, SimpleResultsDBRecord} from "./database.ts";
+import {AppSettings, SimpleResultsDBRecord, useDBSetting} from "./database.ts";
 import {download, generateCsv, mkConfig} from "export-to-csv";
 import {DataCollector} from "./data-collector.tsx";
 import {createMailtoLink} from "./html-data-downloader.ts";
@@ -177,7 +177,11 @@ export function ResultsTable({dataCollector}: {
 
     const [autoResetPageIndex, skipAutoResetPageIndex] = useSkipper()
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-    const [sorting, setSorting] = useState<SortingState>([])
+    const [sorting, setSorting] = useDBSetting<SortingState>(AppSettings.RESULTS_TABLE_SORT, [{
+            id: 'ID',
+            desc: true,
+        }]
+    )
 
     const table = useReactTable({
         data: localTableData,
@@ -243,24 +247,6 @@ export function ResultsTable({dataCollector}: {
             setLocalTableData(data);
         }));
     }, [dataCollector.resultsDatabase]);
-
-    useEffect(() => {
-        SETTINGS_DB.open().then(() => {
-            SETTINGS_DB.getSetting<SortingState>(
-                AppSettings.RESULTS_TABLE_SORT,
-                [{
-                    id: 'ID',
-                    desc: true,
-                }]
-            ).then((results) => {
-                setSorting((prev) => results ? results : prev)
-            })
-        })
-    }, []);
-
-    useEffect(() => {
-        SETTINGS_DB.saveSetting(AppSettings.RESULTS_TABLE_SORT, sorting)
-    }, [sorting]);
 
     function handleExportAsCsv() {
         const csvConfig = mkConfig({

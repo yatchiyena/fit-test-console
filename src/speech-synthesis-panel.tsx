@@ -1,15 +1,14 @@
 /*
  Text-to-speech functions
  */
-import {ChangeEvent, useCallback, useEffect, useRef, useState} from "react";
-import {AppSettings, SETTINGS_DB} from "./database.ts";
+import {useCallback, useEffect, useRef} from "react";
+import {AppSettings, useDBSetting} from "./database.ts";
 import {speech} from "./speech.ts";
 
 
 export function SpeechSynthesisPanel() {
-    const [settingsDb] = useState(() => SETTINGS_DB)
-    const [selectedVoiceName, setSelectedVoiceName] = useState<string | undefined>(undefined);
-    const [speechEnabled, setSpeechEnabled] = useState<boolean>(false);
+    const [selectedVoiceName, setSelectedVoiceName] = useDBSetting<string>(AppSettings.SPEECH_VOICE, findDefaultVoice()?.name || "default");
+    const [speechEnabled, setSpeechEnabled] = useDBSetting<boolean>(AppSettings.SPEECH_ENABLED, false);
     const enableSpeechCheckboxRef = useRef<HTMLInputElement>(null);
 
     const updateSelectedVoice = useCallback((voiceName: string) => {
@@ -17,46 +16,23 @@ export function SpeechSynthesisPanel() {
         console.log(`looking for voice '${voiceName}'; found voice ${foundVoice?.name}`)
         if(foundVoice) {
             speech.setSelectedVoice(foundVoice);
-            setSelectedVoiceName((prev) => {
-                if(prev !== voiceName){
-                    settingsDb.saveSetting(AppSettings.SPEECH_VOICE, voiceName);
-                }
-                return voiceName;
-            }); // this syncs the ui state(?)
+            setSelectedVoiceName(voiceName)
             speech.sayItLater(`This is ${foundVoice.name} speaking.`)
         }
-    }, [settingsDb])
-
-    const getSelectedVoiceSetting = useCallback(() => {
-        settingsDb.getSetting(AppSettings.SPEECH_VOICE, findDefaultVoice()?.name)
-            .then((res) => {
-                console.log(`got speech voice, res is ${res}`)
-                updateSelectedVoice(res as string)
-            })
-    },[settingsDb, updateSelectedVoice])
-
+    }, [setSelectedVoiceName])
 
     useEffect(() => {
-        console.log(`speech useEffect init`)
-        if (!speechSynthesis) {
-            console.log("no SpeechSynthesis");
-            return;
-        }
-
-        settingsDb.open().then(() => {
-            console.log("settings db ready, loading speech settings")
-
-            settingsDb.getSetting(AppSettings.SPEECH_ENABLED, false).then((res) => setSpeechEnabled(res as boolean))
-            getSelectedVoiceSetting();
-        });
-    }, [settingsDb, getSelectedVoiceSetting])
+        updateSelectedVoice(selectedVoiceName)
+    }, [selectedVoiceName, updateSelectedVoice])
 
     useEffect(() => {
         speech.setSpeechEnabled(speechEnabled);
-        if (!speechEnabled) {
+        if (speechEnabled) {
+            speech.sayIt(`This is ${selectedVoiceName}; speech is enabled.`)
+        } else {
             speechSynthesis.cancel();
         }
-    }, [speechEnabled]);
+    }, [speechEnabled, selectedVoiceName]);
 
 
     function findDefaultVoice() {
@@ -74,29 +50,15 @@ export function SpeechSynthesisPanel() {
     }
 
 
-    function voiceSelectionChanged(event: ChangeEvent<HTMLSelectElement>) {
-        const voiceName = event.target.value;
-        console.log(`voice selection changed to ${voiceName}`);
-        updateSelectedVoice(voiceName);
-    }
-
-    function enableSpeechCheckboxChanged() {
-        if (!enableSpeechCheckboxRef.current) {
-            return;
-        }
-        setSpeechEnabled(enableSpeechCheckboxRef.current.checked)
-        settingsDb.saveSetting(AppSettings.SPEECH_ENABLED, enableSpeechCheckboxRef.current.checked)
-    }
-
     return (
         <>
             <div style={{display: "inline-block"}}>
                 <input type="checkbox" ref={enableSpeechCheckboxRef} id="enable-speech-checkbox" checked={speechEnabled}
-                       onChange={enableSpeechCheckboxChanged}/>
+                       onChange={e => setSpeechEnabled(e.target.checked)}/>
                 <label htmlFor="enable-speech-checkbox">Enable Speech</label>
             </div>
             &nbsp;
-            <select value={selectedVoiceName} onChange={voiceSelectionChanged}>
+            <select value={selectedVoiceName} onChange={e => setSelectedVoiceName(e.target.value)}>
                 {
                     speech.getAllVoices().map((voice) => {
                         return <option key={voice.name}

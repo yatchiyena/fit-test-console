@@ -153,19 +153,19 @@ export default abstract class AbstractDB {
         });
     }
 
-    async open() {
+    async open():Promise<IDBDatabase> {
         if(this.db) {
             // already opened
-            console.log(`${this.dbName} database already opened`);
+            // console.log(`${this.dbName} database already opened`);
             return new Promise((resolve) => {
-                resolve(this.db)
+                resolve(this.db as IDBDatabase)
             })
         }
         return new Promise((resolve, reject) => {
             const request = window.indexedDB.open(this.dbName, this.version);
             request.onsuccess = () => {
                 this.onOpenSuccess(request);
-                resolve(this.db)
+                resolve(request.result)
             };
             request.onerror = () => {
                 this.onOpenError(request)

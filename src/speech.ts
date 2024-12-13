@@ -1,5 +1,5 @@
 /**
- * 
+ *
  */
 export const speech = new class {
     private readonly synth: SpeechSynthesis = window.speechSynthesis;

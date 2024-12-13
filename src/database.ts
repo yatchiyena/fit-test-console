@@ -3,6 +3,7 @@ Stores raw data lines from the data collector. Suitable for parsing with the upd
  */
 
 import AbstractDB from "./abstract-db.ts";
+import {Dispatch, SetStateAction, useEffect, useState} from "react";
 
 export interface SimpleDBRecord {
     timestamp: string;
@@ -22,6 +23,7 @@ export enum AppSettings {
     VERBOSE = "verbose",
     SAY_PARTICLE_COUNT = "say-particle-count",
     RESULTS_TABLE_SORT = "results-table-sort",
+    AUTO_ESTIMATE_FIT_FACTOR = "auto-estimate-fit-factor"
 }
 
 
@@ -44,7 +46,7 @@ class SettingsDB extends AbstractDB {
     public async getSetting<T>(name:AppSettings, defaultValue:T) {
         const transaction = this.openTransactionClassic("readonly");
         if (!transaction) {
-            return undefined;
+            return defaultValue;
         }
         const request = transaction.objectStore(SettingsDB.OBJECT_STORE_NAME).get(name)
         return new Promise<T>((resolve, reject) => {
@@ -318,5 +320,21 @@ export class SimpleResultsDB extends AbstractDB {
     }
 }
 
+
 export const SETTINGS_DB = new SettingsDB();
 
+export function useDBSetting<T>(setting: AppSettings, defaultValue:T):[T, Dispatch<SetStateAction<T>>] {
+    const [value, setValue] = useState<T>(defaultValue);
+    // initialize
+    useEffect(() => {
+        SETTINGS_DB.open().then(() => {
+            SETTINGS_DB.getSetting(setting, defaultValue).then((v) => {setValue(v)})
+        })
+    }, [setting, defaultValue]);
+    // update the db when the setting changes
+    useEffect(() => {
+        SETTINGS_DB.saveSetting(setting, value);
+        console.log(`updating setting ${setting} -> ${JSON.stringify(value)}`)
+    }, [setting, value]);
+    return [value, setValue]
+}

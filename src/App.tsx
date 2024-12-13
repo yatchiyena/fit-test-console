@@ -5,7 +5,7 @@ import {DataCollector, DataCollectorPanel, DataCollectorStates} from "./data-col
 import {SpeechSynthesisPanel} from "./speech-synthesis-panel.tsx";
 import {speech} from "./speech.ts"
 import {ExternalController, ExternalControlPanel, ExternalControlStates} from "./external-control.tsx";
-import {AppSettings, SETTINGS_DB, SimpleDB, SimpleResultsDB} from "./database.ts";
+import {AppSettings, SimpleDB, SimpleResultsDB, useDBSetting} from "./database.ts";
 import {downloadData} from "./html-data-downloader.ts";
 import {json2csv} from "json-2-csv";
 import {UsbSerialDrivers} from "./web-usb-serial-drivers.ts";
@@ -25,7 +25,7 @@ function App() {
     const [dataTransmissionMode, setDataTransmissionMode] = useState("Transmitting")
     const [valvePosition, setValvePosition] = useState("Sampling from Ambient")
     const [controlMode, setControlMode] = useState("Internal Control");
-    const [enableAdvancedControls, setEnableAdvancedControls] = useState<boolean>(false);
+    const [enableAdvancedControls, setEnableAdvancedControls] = useDBSetting<boolean>(AppSettings.ADVANCED_MODE, false);
 
     const initialState: ExternalControlStates = {
         dataTransmissionMode: dataTransmissionMode,
@@ -39,8 +39,9 @@ function App() {
     const [externalController] = useState(new ExternalController(externalControlStates));
     const [resultsDatabase] = useState(() => new SimpleResultsDB());
     const [rawDatabase] = useState(() => new SimpleDB());
-    const [verboseSpeech, setVerboseSpeech] = useState<boolean>(false);
-    const [sayParticleCount, setSayParticleCount] = useState<boolean>(false);
+    const [verboseSpeech, setVerboseSpeech] = useDBSetting<boolean>(AppSettings.VERBOSE, false);
+    const [sayParticleCount, setSayParticleCount] = useDBSetting<boolean>(AppSettings.SAY_PARTICLE_COUNT, false);
+    const [autoEstimateFitFactor, setAutoEstimateFitFactor] = useDBSetting<boolean>(AppSettings.AUTO_ESTIMATE_FIT_FACTOR, false)
 
     const initialDataCollectorState: DataCollectorStates = {
         setInstructions: null,
@@ -59,42 +60,11 @@ function App() {
         processedDataCallback, externalControlStates, resultsDatabase))
 
     useEffect(() => {
-        SETTINGS_DB.open().then(() => {
-            console.log("app successfully opened settings db")
-            SETTINGS_DB.getSetting(AppSettings.ADVANCED_MODE, false).then((value) => {
-                console.log(`app retrieved advanced mode setting: ${value}`)
-                setEnableAdvancedControls(() => value as boolean)
-            })
-            SETTINGS_DB.getSetting(AppSettings.VERBOSE, false).then((value) => {
-                setVerboseSpeech(value as boolean)
-            })
-            SETTINGS_DB.getSetting(AppSettings.SAY_PARTICLE_COUNT, false).then((value) => {
-                setSayParticleCount(value as boolean)
-            })
-        })
-    }, []);
-
-    useEffect(() => {
         console.log(`initializing raw logs db`)
         rawDatabase.open();
 
         return () => rawDatabase.close();
     }, [rawDatabase]);
-
-    useEffect(() => {
-        SETTINGS_DB.saveSetting(
-            AppSettings.ADVANCED_MODE, enableAdvancedControls
-        )
-    }, [enableAdvancedControls]);
-
-    useEffect(() => {
-        SETTINGS_DB.saveSetting(AppSettings.VERBOSE, verboseSpeech)
-        dataCollectorStates.verboseSpeech = verboseSpeech
-    }, [verboseSpeech]);
-    useEffect(() => {
-        SETTINGS_DB.saveSetting(AppSettings.SAY_PARTICLE_COUNT, sayParticleCount)
-        dataCollectorStates.sayParticleCount = sayParticleCount
-    }, [sayParticleCount]);
 
     useEffect(() => {
         // need to propagate these down?
@@ -324,11 +294,17 @@ function App() {
             <fieldset style={{maxWidth: "fit-content", float: "left"}}>
                 <SpeechSynthesisPanel/>
                 <div style={{display: "inline-block"}}>
-                    <input type="checkbox" id="enable-verbose-speech-checkbox" checked={verboseSpeech} onChange={event => {setVerboseSpeech(event.target.checked)}}/>
+                    <input type="checkbox" id="enable-verbose-speech-checkbox" checked={verboseSpeech}
+                           onChange={event => {
+                               setVerboseSpeech(event.target.checked)
+                           }}/>
                     <label htmlFor="enable-verbose-speech-checkbox">Verbose</label>
                 </div>
                 <div style={{display: "inline-block"}}>
-                    <input type="checkbox" id="speak-concentration-checkbox" checked={sayParticleCount} onChange={event => {setSayParticleCount(event.target.checked)}}/>
+                    <input type="checkbox" id="speak-concentration-checkbox" checked={sayParticleCount}
+                           onChange={event => {
+                               setSayParticleCount(event.target.checked)
+                           }}/>
                     <label htmlFor="speak-concentration-checkbox">Say particle count</label>
                 </div>
                 <div style={{display: "inline-block"}}>
@@ -336,6 +312,12 @@ function App() {
                            checked={enableAdvancedControls}
                            onChange={e => setEnableAdvancedControls(e.target.checked)}/>
                     <label htmlFor="enable-advanced-controls">Advanced</label>
+                </div>
+                <div style={{display: "inline-block"}}>
+                    <input type="checkbox" id="auto-estimate-fit-factor"
+                           checked={autoEstimateFitFactor}
+                           onChange={e => setAutoEstimateFitFactor(e.target.checked)}/>
+                    <label htmlFor="auto-estimate-fit-factor">Auto-estimate FF</label>
                 </div>
             </fieldset>
             {enableAdvancedControls ?
