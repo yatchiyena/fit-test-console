@@ -325,12 +325,12 @@ export const SETTINGS_DB = new SettingsDB();
 
 export function useDBSetting<T>(setting: AppSettings, defaultValue:T):[T, Dispatch<SetStateAction<T>>] {
     const [value, setValue] = useState<T>(defaultValue);
-    // initialize
+    // initialize (can't depend on defaultValue or it will loop forever, also can't remove deps array or it will loop forever)
     useEffect(() => {
         SETTINGS_DB.open().then(() => {
             SETTINGS_DB.getSetting(setting, defaultValue).then((v) => {setValue(v)})
         })
-    }, [setting, defaultValue]);
+    }, []);
     // update the db when the setting changes
     useEffect(() => {
         SETTINGS_DB.saveSetting(setting, value);
