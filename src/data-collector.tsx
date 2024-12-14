@@ -10,6 +10,18 @@ import {SETTINGS_DB, SimpleResultsDB, SimpleResultsDBRecord} from "./database.ts
 import React, {RefObject, useEffect, useState} from "react";
 import {ResultsTable} from "./ResultsTable.tsx";
 
+// TODO: move to util, or get a library for this
+function sum(theNumbers:number[], startIndex:number=0, endIndex:number=-1) {
+    return theNumbers.slice(startIndex, endIndex).reduce((total, theNumber) => total + theNumber, 0)
+}
+function avg(theNumbers: number[], startIndex: number=0, endIndex: number=-1) {
+    if(endIndex<0) {
+        endIndex = theNumbers.length;
+    }
+    return sum(theNumbers, startIndex, endIndex) / (endIndex - startIndex);
+}
+
+
 export class DataCollector {
     static PORTACOUNT_VERSION_PATTERN = /^PORTACOUNT\s+PLUS\S+PROM\S+(?<version>.+)/i; // PORTACOUNT PLUS PROM V1.7
     static COPYRIGHT_PATTERN = /^COPYRIGHT.+/i; // COPYRIGHT(c)1992 TSI INC
@@ -51,7 +63,9 @@ export class DataCollector {
     sampleSource: string = "undefined";
     private control: ExternalControlStates;
     states: DataCollectorStates;
-    private setResults: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>>|undefined;
+    private setResults: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>> | undefined;
+    private concentrationHistory: number[] = [];
+    private ambientConcentration:number = 0;
 
     constructor(states: DataCollectorStates,
                 logCallback: (message: string) => void,
@@ -78,7 +92,7 @@ export class DataCollector {
     }
 
     setInstructions(message: string) {
-        if(this.states.setInstructions) {
+        if (this.states.setInstructions) {
             this.states.setInstructions(message)
         }
         speech.sayItLater(message); // make sure instructions are queued.
@@ -210,8 +224,7 @@ export class DataCollector {
                 this.appendToProcessedData(`${this.sampleSource}: ${concentration}\n`)
             }
 
-            // remove me
-            this.states.setEstimatedFitFactor(concentration)
+            this.processConcentration(concentration)
         }
     }
 
@@ -241,7 +254,7 @@ export class DataCollector {
         this.resultsDatabase.createNewTest(timestamp).then((newTestData) => {
             this.currentTestData = newTestData;
             console.log(`new test added: ${JSON.stringify(this.currentTestData)}`)
-            if(this.setResults) {
+            if (this.setResults) {
                 // this triggers an update
                 this.setResults((prev) => [...prev, newTestData]);
             } else {
@@ -263,7 +276,7 @@ export class DataCollector {
             this.currentTestData[`${exerciseNum}`] = `${Math.floor(ff)}`; // probably "Final"
         }
 
-        if(this.setResults) {
+        if (this.setResults) {
             // update table data
             this.setResults((prev) => [...prev]) // force an update by changing the ref
         } else {
@@ -278,8 +291,8 @@ export class DataCollector {
      * @param record
      */
     updateTest(record: SimpleResultsDBRecord) {
-        if(record.ID) {
-            if(record.ID === this.currentTestData?.ID) {
+        if (record.ID) {
+            if (record.ID === this.currentTestData?.ID) {
                 /*
                 The record being updated by the UI is currently being populated by the currently running test.
                 Point this.currentTestData to the record the UI is updating, and make sure the test results are copied over.
@@ -288,10 +301,10 @@ export class DataCollector {
                 this.currentTestData = record;
                 // just make sure all the number fields have values
                 Object.entries(oldCurrentTestData).forEach(([key, value]) => {
-                    if(typeof value === "number" && this.currentTestData) {
-                        if(this.currentTestData[key] !== value) {
+                    if (typeof value === "number" && this.currentTestData) {
+                        if (this.currentTestData[key] !== value) {
                             this.currentTestData[key] = value;
-                            if(this.setResults) {
+                            if (this.setResults) {
                                 this.setResults((prev) => [...prev]) // force an update by changing the ref
                             }
                         }
@@ -312,15 +325,109 @@ export class DataCollector {
         this.resultsDatabase.updateTest(this.currentTestData);
     }
 
+
     /**
+     * Assume mask and ambient concentration values will be at least 1 order of magnitude apart (ie. ambient will be at least 10x mask).
+     * Assume ambient will be more stable than mask when well above zero.
+     * Assume purge times 4-5 seconds. During this time concentration will sharply rise or fall.
      * Given this new concentration number, maybe update the auto-detected ambient value.
      * Ambient values are assumed to be higher than mask values. We'll assume that ambient numbers are also reasonably
      * stable.  So after 4 seconds or so of stable high values, we'll update the auto-detected ambient value.
+     *
+     * Margin of error at 95% confidence level is approximately 1/sqrt(sample_size).
+     * Sample size here is particle count.
+     * Need to understand this calculation more: https://www.qualtrics.com/experience-management/research/margin-of-error/
+     *
+     * For now, assume ambient concentrations don't vary by more than 15% over 4 seconds, and are over 100 particles.
+     * Any time we see an increase of more than 15%, assume we previously incorrectly recorded a mask reading as an ambient reading.
+     * In this case, try to get a few more ambient samples and update if the new values are stable.
+     * It's possible that ambient numbers are/were temporarily high, so if we find a new stable ambient level, we should update it,
+     * even if it's downward and appears to be a mask value.  Maybe require a longer stable time for this case.
      * @param concentration
      */
-    maybeUpdateAutoDetectedAmbient(concentration: number) {
-        
 
+    processConcentration(concentration: number) {
+        this.concentrationHistory.push(concentration);
+
+        // find a plateau to use as ambient level
+
+        // naively find the plateau.
+        // look for consecutive data points that are within 15% of each other.
+        // if these are within 15% of the previous ambient, assume it's the new ambient.
+        // if these are much higher than the previous ambient, assume it's the new ambient.
+        let startIndex: number = 0;
+        let endIndex: number = 0;
+        let average: number = 0;
+        let ambientCandidate: number = this.ambientConcentration;
+
+        this.concentrationHistory.forEach((conc, index) => {
+            if( average === 0) {
+                // just starting out
+                average = conc;
+                startIndex = index;
+                endIndex = index;
+                return;
+            }
+
+            const plateauWidth = endIndex-startIndex;
+            if (Math.abs(conc - average) / average < 0.15) {
+                // within 15%, could be within the same plateau
+                endIndex = index;
+                average = avg(this.concentrationHistory, startIndex, endIndex+1);
+                if(plateauWidth >= 4) {
+                    // we have more than 4 consecutive samples, probably found a plateau
+                    ambientCandidate = average;
+                }
+
+                console.log(`conc is ${conc}, average is ${average}, ambientCandidate is ${ambientCandidate}, startIndex: ${startIndex}, endIndex: ${endIndex}`);
+            } else {
+                // outside 15%. might have a plateau in the previous run.
+                if(plateauWidth > 4) {
+                    // Assuming samples are 1 second part, we've got 4 seconds of level samples. Let's call it a plateau
+                    if( average > ambientCandidate) {
+                        // plateau is higher than previous ambient, update it and reset
+                        ambientCandidate = average
+                        startIndex = index;
+                        endIndex = index;
+                        average = conc;
+                    } else {
+                        // new plateau is lower than previous ambient, but we don't know if it's a new ambient or if it's in the mask.
+                    }
+                } else {
+                    // not enough samples, skip the data points
+                    startIndex = index;
+                    endIndex = index
+                    average = conc;
+                }
+            }
+        })
+
+        console.log(`concentration is ${concentration}, ambientCandidate is ${ambientCandidate}`);
+        if(ambientCandidate > 0) {
+            this.ambientConcentration = ambientCandidate
+            this.states.setAmbientConcentration(ambientCandidate);
+
+            if(endIndex <= this.concentrationHistory.length) {
+                // the latest concentration number was not used to calculate the ambient candidate
+                // the latest concentration is below ambient candidate.
+                // If it's above ambient candidate, it means we likely found a new ambient and we're not in the mask,
+                // in which case, don't calculate estimated FF since that won't make sense
+                this.states.setMaskConcentration(concentration);
+                this.states.setEstimatedFitFactor(ambientCandidate / concentration)
+            } else {
+                // todo, reset mask and estimated ff? since we're in a transition period
+            }
+        }
+
+        // trim old values we no longer need
+        this.concentrationHistory.splice(0, startIndex);
+        endIndex+= startIndex; // adjust end index
+
+        // if history is too long, trim it
+        if(this.concentrationHistory.length > 30) {
+            this.concentrationHistory.splice(this.concentrationHistory.length-30);
+            endIndex -= Math.max(0, this.concentrationHistory.length-30);
+        }
     }
 
     // todo: use DataCollectorStates instead
@@ -331,7 +438,7 @@ export class DataCollector {
 
 
 export interface DataCollectorStates {
-    setInstructions: React.Dispatch<React.SetStateAction<string>>|null,
+    setInstructions: React.Dispatch<React.SetStateAction<string>> | null,
     logData: string,
     setLogData: React.Dispatch<React.SetStateAction<string>>,
     rawConsoleData: string,
@@ -366,7 +473,7 @@ export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollect
 
     return (
         <>
-            <section id="collected-data" style={{display: "inline-block", width: "100%"}} >
+            <section id="collected-data" style={{display: "inline-block", width: "100%"}}>
                 <fieldset>
                     <legend>Fit Test Info</legend>
                     <ResultsTable dataCollector={dataCollector}/>

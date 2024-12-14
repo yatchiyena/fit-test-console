@@ -45,8 +45,8 @@ function App() {
     const [autoEstimateFitFactor, setAutoEstimateFitFactor] = useDBSetting<boolean>(AppSettings.AUTO_ESTIMATE_FIT_FACTOR, false)
     const [instructions, setInstructions] = useState<string>("")
     const [estimatedFitFactor, setEstimatedFitFactor] = useState<number>(1)
-    const [ambientConcentration, setAmbientConcentration] = useState<number>(1234)
-    const [maskConcentration, setMaskConcentration] = useState<number>(23)
+    const [ambientConcentration, setAmbientConcentration] = useState<number>(0)
+    const [maskConcentration, setMaskConcentration] = useState<number>(0)
 
     const initialDataCollectorState: DataCollectorStates = {
         setInstructions: setInstructions,
@@ -347,15 +347,15 @@ function App() {
                     <legend>Estimated Fit Factor</legend>
                     <fieldset style={{display: "inline-block"}}>
                         <legend>Ambient</legend>
-                        <span>{ambientConcentration}</span>
+                        <span>{Number(ambientConcentration).toFixed(0)}</span>
                     </fieldset>
                     <fieldset style={{display: "inline-block"}}>
                         <legend>Mask</legend>
-                        <span>{maskConcentration}</span>
+                        <span>{Number(maskConcentration).toFixed(maskConcentration<10?1:0)}</span>
                     </fieldset>
                     <div className={getFitFactorCssClass(estimatedFitFactor)}
                          style={{width: '100%', height: '100%', alignContent: 'center', fontSize: "1.7rem"}}>
-                        <span>{estimatedFitFactor}</span>
+                        <span>{Number(estimatedFitFactor).toFixed(estimatedFitFactor<10?1:0)}</span>
                         <br/>
                         <span
                             style={{fontSize: "smaller"}}>({convertFitFactorToFiltrationEfficiency(estimatedFitFactor)}%)</span>
