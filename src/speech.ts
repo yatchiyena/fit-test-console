@@ -59,6 +59,10 @@ export const speech = new class {
         this.synth.speak(utterThis); // this enqueues
     }
 
+    /**
+     * interrupt
+     * @param message
+     */
     public sayIt(message: string) {
         if (!this.speechEnabled) {
             return;
@@ -76,5 +80,17 @@ export const speech = new class {
         } else {
             this.synth.speak(utterThis);
         }
+    }
+
+    /**
+     * say it if not already saying something
+     * @param message
+     */
+    public sayItPolitely(message:string) {
+        if(this.isSayingSomething()) {
+            console.log(`say it politely yielding. ${message}`);
+            return;
+        }
+        this.sayIt(message);
     }
 }

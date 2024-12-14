@@ -1,7 +1,6 @@
 /*
 Collect data from PortaCount 8020a
  */
-// import {isSayingSomething, sayIt, sayItLater} from "./speech.js";
 
 // data output patterns
 import {speech} from "./speech.ts";
@@ -417,7 +416,12 @@ export class DataCollector {
                 // If it's above ambient candidate, it means we likely found a new ambient and we're not in the mask,
                 // in which case, don't calculate estimated FF since that won't make sense
                 this.states.setMaskConcentration(concentration);
-                this.states.setEstimatedFitFactor(ambientCandidate / concentration)
+                const estimatedFF = ambientCandidate / concentration;
+                this.states.setEstimatedFitFactor(estimatedFF)
+                if(this.states.sayEstimatedFitFactor) {
+                    speech.sayItPolitely(`Estimated Fit Factor is ${Number(estimatedFF).toFixed(0)}`)
+                }
+
             } else {
                 // todo, reset mask and estimated ff? since we're in a transition period
                 this.states.setMaskConcentration(-1)
@@ -456,6 +460,7 @@ export interface DataCollectorStates {
     setProcessedData: React.Dispatch<React.SetStateAction<string>>,
     fitTestDataTableRef: RefObject<HTMLTableElement>,
     sayParticleCount: boolean,
+    sayEstimatedFitFactor: boolean;
     verboseSpeech: boolean,
     setEstimatedFitFactor: React.Dispatch<React.SetStateAction<number>>,
     setAmbientConcentration: React.Dispatch<React.SetStateAction<number>>,

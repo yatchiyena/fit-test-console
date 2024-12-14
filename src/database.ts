@@ -23,7 +23,8 @@ export enum AppSettings {
     VERBOSE = "verbose",
     SAY_PARTICLE_COUNT = "say-particle-count",
     RESULTS_TABLE_SORT = "results-table-sort",
-    AUTO_ESTIMATE_FIT_FACTOR = "auto-estimate-fit-factor"
+    AUTO_ESTIMATE_FIT_FACTOR = "auto-estimate-fit-factor",
+    SAY_ESTIMATED_FIT_FACTOR = "say-estimated-fit-factor",
 }
 
 

@@ -42,6 +42,7 @@ function App() {
     const [rawDatabase] = useState(() => new SimpleDB());
     const [verboseSpeech, setVerboseSpeech] = useDBSetting<boolean>(AppSettings.VERBOSE, false);
     const [sayParticleCount, setSayParticleCount] = useDBSetting<boolean>(AppSettings.SAY_PARTICLE_COUNT, false);
+    const [sayEstimatedFitFactor, setSayEstimatedFitFactor] = useDBSetting<boolean>(AppSettings.SAY_ESTIMATED_FIT_FACTOR, true);
     const [autoEstimateFitFactor, setAutoEstimateFitFactor] = useDBSetting<boolean>(AppSettings.AUTO_ESTIMATE_FIT_FACTOR, false)
     const [instructions, setInstructions] = useState<string>("")
     const [estimatedFitFactor, setEstimatedFitFactor] = useState<number>(1)
@@ -62,7 +63,8 @@ function App() {
         setEstimatedFitFactor: setEstimatedFitFactor,
         setAmbientConcentration: setAmbientConcentration,
         setMaskConcentration: setMaskConcentration,
-        autoEstimateFitFactor: autoEstimateFitFactor
+        autoEstimateFitFactor: autoEstimateFitFactor,
+        sayEstimatedFitFactor: sayEstimatedFitFactor,
     };
     const [dataCollectorStates] = useState(initialDataCollectorState);
     const [dataCollector] = useState(() => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
@@ -94,6 +96,12 @@ function App() {
         console.log(`control mode changed: ${controlMode}`);
         speech.sayItLater(controlMode);
     }, [controlMode, externalControlStates]);
+    useEffect(() => {
+        dataCollectorStates.sayParticleCount = sayParticleCount;
+    }, [sayParticleCount, dataCollectorStates]);
+    useEffect(() => {
+        dataCollectorStates.sayEstimatedFitFactor = sayEstimatedFitFactor;
+    }, [sayEstimatedFitFactor, dataCollectorStates]);
 
     // propagate states
     useEffect(() => {
@@ -107,7 +115,7 @@ function App() {
     }, [processedData, dataCollectorStates]);
     useEffect(() => {
         dataCollectorStates.autoEstimateFitFactor = autoEstimateFitFactor;
-    }, [autoEstimateFitFactor]);
+    }, [autoEstimateFitFactor, dataCollectorStates]);
 
     useEffect(() => {
         console.log(`baud rate updated to ${baudRate}`)
@@ -324,16 +332,23 @@ function App() {
                     <label htmlFor="speak-concentration-checkbox">Say particle count</label>
                 </div>
                 <div style={{display: "inline-block"}}>
-                    <input type="checkbox" id="enable-advanced-controls"
-                           checked={enableAdvancedControls}
-                           onChange={e => setEnableAdvancedControls(e.target.checked)}/>
-                    <label htmlFor="enable-advanced-controls">Advanced</label>
-                </div>
-                <div style={{display: "inline-block"}}>
                     <input type="checkbox" id="auto-estimate-fit-factor"
                            checked={autoEstimateFitFactor}
                            onChange={e => setAutoEstimateFitFactor(e.target.checked)}/>
                     <label htmlFor="auto-estimate-fit-factor">Auto-estimate FF</label>
+                </div>
+                <div style={{display: "inline-block"}}>
+                    <input type="checkbox" id="say-estimated-ff-checkbox" checked={sayEstimatedFitFactor}
+                           onChange={event => {
+                               setSayEstimatedFitFactor(event.target.checked)
+                           }}/>
+                    <label htmlFor="say-estimated-ff-checkbox">Say estimated FF</label>
+                </div>
+                <div style={{display: "inline-block"}}>
+                    <input type="checkbox" id="enable-advanced-controls"
+                           checked={enableAdvancedControls}
+                           onChange={e => setEnableAdvancedControls(e.target.checked)}/>
+                    <label htmlFor="enable-advanced-controls">Advanced</label>
                 </div>
             </fieldset>
             {enableAdvancedControls ?
