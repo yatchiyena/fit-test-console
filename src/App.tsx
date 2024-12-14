@@ -46,7 +46,7 @@ function App() {
     const [instructions, setInstructions] = useState<string>("")
     const [estimatedFitFactor, setEstimatedFitFactor] = useState<number>(1)
     const [ambientConcentration, setAmbientConcentration] = useState<number>(0)
-    const [maskConcentration, setMaskConcentration] = useState<number>(0)
+    const [maskConcentration, setMaskConcentration] = useState<number>(-1) // -1 means unknown
 
     const initialDataCollectorState: DataCollectorStates = {
         setInstructions: setInstructions,
@@ -62,6 +62,7 @@ function App() {
         setEstimatedFitFactor: setEstimatedFitFactor,
         setAmbientConcentration: setAmbientConcentration,
         setMaskConcentration: setMaskConcentration,
+        autoEstimateFitFactor: autoEstimateFitFactor
     };
     const [dataCollectorStates] = useState(initialDataCollectorState);
     const [dataCollector] = useState(() => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
@@ -104,6 +105,9 @@ function App() {
     useEffect(() => {
         dataCollectorStates.processedData = processedData;
     }, [processedData, dataCollectorStates]);
+    useEffect(() => {
+        dataCollectorStates.autoEstimateFitFactor = autoEstimateFitFactor;
+    }, [autoEstimateFitFactor]);
 
     useEffect(() => {
         console.log(`baud rate updated to ${baudRate}`)
@@ -342,38 +346,39 @@ function App() {
                         <FitTestProtocolPanel></FitTestProtocolPanel>
                     </fieldset>
                 </section> : null}
-            <section style={{display: "inline-flex", width: "100%"}}>
-                <fieldset style={{display: "inline-block"}}>
-                    <legend>Estimated Fit Factor</legend>
+            {autoEstimateFitFactor ?
+                <section style={{display: "inline-flex", width: "100%"}}>
                     <fieldset style={{display: "inline-block"}}>
-                        <legend>Ambient</legend>
-                        <span>{Number(ambientConcentration).toFixed(0)}</span>
+                        <legend>Estimated Fit Factor</legend>
+                        <fieldset style={{display: "inline-block"}}>
+                            <legend>Ambient</legend>
+                            <span>{Number(ambientConcentration).toFixed(0)}</span>
+                        </fieldset>
+                        <fieldset style={{display: "inline-block"}}>
+                            <legend>Mask</legend>
+                            <span>{maskConcentration<0? "?" : Number(maskConcentration).toFixed(maskConcentration < 10 ? 1 : 0)}</span>
+                        </fieldset>
+                        <div className={getFitFactorCssClass(estimatedFitFactor)}
+                             style={{width: '100%', height: '100%', alignContent: 'center', fontSize: "1.7rem"}}>
+                            <span>{Number(estimatedFitFactor).toFixed(estimatedFitFactor < 10 ? 1 : 0)}</span>
+                            <br/>
+                            <span
+                                style={{fontSize: "smaller"}}>({convertFitFactorToFiltrationEfficiency(estimatedFitFactor)}%)</span>
+                        </div>
                     </fieldset>
-                    <fieldset style={{display: "inline-block"}}>
-                        <legend>Mask</legend>
-                        <span>{Number(maskConcentration).toFixed(maskConcentration<10?1:0)}</span>
+                    <fieldset style={{display: "inline-block", flexGrow: 1}}>
+                        <legend>Instructions</legend>
+                        <textarea id="instructions" readOnly={true} style={{
+                            width: "100%",
+                            minHeight: "3rem",
+                            height: "fit-content",
+                            fontSize: "xxx-large",
+                            overflow: "auto",
+                            resize: "vertical",
+                            border: "none"
+                        }} value={instructions}></textarea>
                     </fieldset>
-                    <div className={getFitFactorCssClass(estimatedFitFactor)}
-                         style={{width: '100%', height: '100%', alignContent: 'center', fontSize: "1.7rem"}}>
-                        <span>{Number(estimatedFitFactor).toFixed(estimatedFitFactor<10?1:0)}</span>
-                        <br/>
-                        <span
-                            style={{fontSize: "smaller"}}>({convertFitFactorToFiltrationEfficiency(estimatedFitFactor)}%)</span>
-                    </div>
-                </fieldset>
-                <fieldset style={{display: "inline-block", flexGrow: 1}}>
-                    <legend>Instructions</legend>
-                    <textarea id="instructions" readOnly={true} style={{
-                        width: "100%",
-                        minHeight: "3rem",
-                        height: "fit-content",
-                        fontSize: "xxx-large",
-                        overflow: "auto",
-                        resize: "vertical",
-                        border: "none"
-                    }} value={instructions}></textarea>
-                </fieldset>
-            </section>
+                </section> : null}
             <DataCollectorPanel dataCollector={dataCollector}></DataCollectorPanel>
         </>
     )

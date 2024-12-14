@@ -224,7 +224,9 @@ export class DataCollector {
                 this.appendToProcessedData(`${this.sampleSource}: ${concentration}\n`)
             }
 
-            this.processConcentration(concentration)
+            if(this.states.autoEstimateFitFactor) {
+                this.processConcentration(concentration)
+            }
         }
     }
 
@@ -359,6 +361,7 @@ export class DataCollector {
         let endIndex: number = 0;
         let average: number = 0;
         let ambientCandidate: number = this.ambientConcentration;
+        let unusedConcentration = false
 
         this.concentrationHistory.forEach((conc, index) => {
             if( average === 0) {
@@ -392,6 +395,7 @@ export class DataCollector {
                         average = conc;
                     } else {
                         // new plateau is lower than previous ambient, but we don't know if it's a new ambient or if it's in the mask.
+                        unusedConcentration = true;
                     }
                 } else {
                     // not enough samples, skip the data points
@@ -407,7 +411,7 @@ export class DataCollector {
             this.ambientConcentration = ambientCandidate
             this.states.setAmbientConcentration(ambientCandidate);
 
-            if(endIndex <= this.concentrationHistory.length) {
+            if(unusedConcentration) {
                 // the latest concentration number was not used to calculate the ambient candidate
                 // the latest concentration is below ambient candidate.
                 // If it's above ambient candidate, it means we likely found a new ambient and we're not in the mask,
@@ -416,7 +420,12 @@ export class DataCollector {
                 this.states.setEstimatedFitFactor(ambientCandidate / concentration)
             } else {
                 // todo, reset mask and estimated ff? since we're in a transition period
+                this.states.setMaskConcentration(-1)
+                this.states.setEstimatedFitFactor(1)
             }
+        } else if(this.ambientConcentration === 0) {
+            // we don't have an initial concentration yet, update it with what we have
+            this.states.setAmbientConcentration(average);
         }
 
         // trim old values we no longer need
@@ -451,6 +460,7 @@ export interface DataCollectorStates {
     setEstimatedFitFactor: React.Dispatch<React.SetStateAction<number>>,
     setAmbientConcentration: React.Dispatch<React.SetStateAction<number>>,
     setMaskConcentration: React.Dispatch<React.SetStateAction<number>>,
+    autoEstimateFitFactor: boolean
 }
 
 export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollector }) {
