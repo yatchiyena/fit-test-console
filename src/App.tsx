@@ -361,8 +361,8 @@ function App() {
                         <FitTestProtocolPanel></FitTestProtocolPanel>
                     </fieldset>
                 </section> : null}
-            {autoEstimateFitFactor ?
                 <section style={{display: "inline-flex", width: "100%"}}>
+                    {autoEstimateFitFactor ?
                     <fieldset style={{display: "inline-block"}}>
                         <legend>Estimated Fit Factor</legend>
                         <fieldset style={{display: "inline-block"}}>
@@ -380,7 +380,7 @@ function App() {
                             <span
                                 style={{fontSize: "smaller"}}>({convertFitFactorToFiltrationEfficiency(estimatedFitFactor)}%)</span>
                         </div>
-                    </fieldset>
+                    </fieldset> : null }
                     <fieldset style={{display: "inline-block", flexGrow: 1}}>
                         <legend>Instructions</legend>
                         <textarea id="instructions" readOnly={true} style={{
@@ -393,7 +393,7 @@ function App() {
                             border: "none"
                         }} value={instructions}></textarea>
                     </fieldset>
-                </section> : null}
+                </section>
             <DataCollectorPanel dataCollector={dataCollector}></DataCollectorPanel>
         </>
     )
