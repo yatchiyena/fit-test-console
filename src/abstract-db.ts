@@ -63,14 +63,19 @@ export default abstract class AbstractDB {
             console.log(`${this.dbName} database not ready`);
             return;
         }
-        const transaction = this.db.transaction(objectStoreNames, mode);
-        transaction.oncomplete = (event) => {
-            console.log(`${this.dbName} transaction complete: ${event}`);
+        try {
+            const transaction = this.db.transaction(objectStoreNames, mode);
+            transaction.oncomplete = (event) => {
+                console.log(`${this.dbName} transaction complete: ${event}`);
+            }
+            transaction.onerror = (event) => {
+                console.log(`${this.dbName} transaction error ${event}`);
+            }
+            return transaction;
+        }catch(error) {
+            console.error(`${this.dbName} error opening transaction: ${error}`);
+            return;
         }
-        transaction.onerror = (event) => {
-            console.log(`${this.dbName} transaction error ${event}`);
-        }
-        return transaction;
     }
 
     /**

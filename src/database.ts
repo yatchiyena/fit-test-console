@@ -25,6 +25,10 @@ export enum AppSettings {
     RESULTS_TABLE_SORT = "results-table-sort",
     AUTO_ESTIMATE_FIT_FACTOR = "auto-estimate-fit-factor",
     SAY_ESTIMATED_FIT_FACTOR = "say-estimated-fit-factor",
+    DEFAULT_TO_PREVIOUS_PARTICIPANT = "default-to-previous-participant",
+    SHOW_EXTERNAL_CONTROL = "show-external-control",
+    SHOW_PROTOCOL_EDITOR = "show-protocol-editor",
+    BAUD_RATE = "baud-rate",
 }
 
 
@@ -44,7 +48,7 @@ class SettingsDB extends AbstractDB {
         theDb.createObjectStore(SettingsDB.OBJECT_STORE_NAME, {keyPath: "ID"});
     }
 
-    public async getSetting<T>(name:AppSettings, defaultValue:T) {
+    public async getSetting<T>(name: AppSettings, defaultValue: T) {
         const transaction = this.openTransactionClassic("readonly");
         if (!transaction) {
             return defaultValue;
@@ -58,7 +62,7 @@ class SettingsDB extends AbstractDB {
             }
             request.onsuccess = () => {
                 console.log(`getSetting ${name} = ${JSON.stringify(request.result)}`);
-                if(request.result) {
+                if (request.result) {
                     resolve(request.result.value);
                 } else {
                     // no value in db, return default
@@ -68,7 +72,7 @@ class SettingsDB extends AbstractDB {
         });
     }
 
-    async saveSetting<T>(name:AppSettings, value:T) {
+    async saveSetting<T>(name: AppSettings, value: T) {
         console.log(`saving setting ${name} = ${value}`)
         const transaction = this.openTransactionClassic("readwrite");
         if (!transaction) {
@@ -76,7 +80,7 @@ class SettingsDB extends AbstractDB {
             return;
         }
 
-        const entry = {ID: name, value:value}
+        const entry = {ID: name, value: value}
         const request = transaction.objectStore(SettingsDB.OBJECT_STORE_NAME).put(entry);
         return new Promise((resolve, reject) => {
             request.onerror = (event) => {
@@ -324,18 +328,25 @@ export class SimpleResultsDB extends AbstractDB {
 
 export const SETTINGS_DB = new SettingsDB();
 
-export function useDBSetting<T>(setting: AppSettings, defaultValue:T):[T, Dispatch<SetStateAction<T>>] {
+export function useDBSetting<T>(setting: AppSettings, defaultValue: T): [T, Dispatch<SetStateAction<T>>] {
     const [value, setValue] = useState<T>(defaultValue);
+    const [loadedFromDb, setLoadedFromDb] = useState(false);
+
     // initialize (can't depend on defaultValue or it will loop forever, also can't remove deps array or it will loop forever)
     useEffect(() => {
         SETTINGS_DB.open().then(() => {
-            SETTINGS_DB.getSetting(setting, defaultValue).then((v) => {setValue(v)})
+            SETTINGS_DB.getSetting(setting, defaultValue).then((v) => {
+                setValue(v)
+                setLoadedFromDb(true);
+            })
         })
     }, []);
     // update the db when the setting changes
     useEffect(() => {
-        SETTINGS_DB.saveSetting(setting, value);
-        console.log(`updating setting ${setting} -> ${JSON.stringify(value)}`)
-    }, [setting, value]);
+        if(loadedFromDb) {
+            SETTINGS_DB.saveSetting(setting, value);
+            console.log(`updating setting ${setting} -> ${JSON.stringify(value)}`)
+        }
+    }, [setting, value, loadedFromDb]);
     return [value, setValue]
 }

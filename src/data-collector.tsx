@@ -8,18 +8,48 @@ import {ExternalControlStates} from "./external-control.tsx";
 import {SETTINGS_DB, SimpleResultsDB, SimpleResultsDBRecord} from "./database.ts";
 import React, {RefObject, useEffect, useState} from "react";
 import {ResultsTable} from "./ResultsTable.tsx";
+import {EChartsOption} from "echarts-for-react/src/types.ts";
+import {deepCopy} from "json-2-csv/lib/utils";
+import MovingAverage from "moving-average"
 
-// TODO: move to util, or get a library for this
-function sum(theNumbers:number[], startIndex:number=0, endIndex:number=-1) {
-    return theNumbers.slice(startIndex, endIndex).reduce((total, theNumber) => total + theNumber, 0)
-}
-function avg(theNumbers: number[], startIndex: number=0, endIndex: number=-1) {
-    if(endIndex<0) {
-        endIndex = theNumbers.length;
-    }
-    return sum(theNumbers, startIndex, endIndex) / (endIndex - startIndex);
+const FIVE_SECONDS_IN_MS: number = 5 * 1000;
+const TWENTY_SECONDS_IN_MS: number = 20 * 1000;
+
+enum SampleZone {
+    MASK = "mask",
+    AMBIENT = "ambient",
+    UNKNOWN = "unknown",
 }
 
+/**
+ * timestamp, concentration, estimated fit factor, guessed ambient level, EMA concentration, stddev
+ */
+type TimeseriesEntry = {
+    // only timestamp and concentration are measured. everything else is derived from these.
+    timestamp: Date, // timestamp from the clock
+    concentration: number, // the particle count concentration reading from the device
+    emaConcentration: number | undefined, // exponential moving average of the concentration
+    emaConcentrationStdDev: number | undefined, // std dev
+    guestimatedAmbient: number | undefined, // based on ema concentration and stddev, try to guess the ambient level
+    sampleZone: SampleZone, // based on guestimatedAmbient, etc, classify which zone we're in (ambient, mask, unknown)
+    emaConcentrationInZone: number | undefined, // based on guestimatedAmbient, only using data points in current zone
+    estimatedFitFactor: number | undefined, // based on emaConcentrationInZone and guestimatedAmbient
+    estimatedFitFactorBand: number | undefined, // +/- band calculated from applying stddev to emaConcentrationInZone
+    estimatedFitFactorBandLower: number | undefined,
+    zoneFF: number | undefined,
+};
+
+const timeSeriesEntryDerivedFields = {
+    emaConcentration: undefined,
+    emaConcentrationStdDev: undefined,
+    guestimatedAmbient: undefined,
+    sampleZone: SampleZone.UNKNOWN,
+    emaConcentrationInZone: undefined,
+    estimatedFitFactor: undefined,
+    estimatedFitFactorBand: undefined,
+    estimatedFitFactorBandLower: undefined,
+    zoneFF: undefined,
+}
 
 export class DataCollector {
     static PORTACOUNT_VERSION_PATTERN = /^PORTACOUNT\s+PLUS\S+PROM\S+(?<version>.+)/i; // PORTACOUNT PLUS PROM V1.7
@@ -33,7 +63,7 @@ export class DataCollector {
     static MASK_PURGE_PATTERN = /^Mask\s+purge\s*=\s*(?<maskPurgeTime>\d+)/i; // Mask purge  = 11 sec.
     static MASK_SAMPLE_PATTERN = /^Mask\s+sample\s+(?<exerciseNumber>\d+)\s*=\s*(?<maskSampleTime>\d+)/i; // Mask sample 1 = 40 sec.
     static DIP_SWITCH_PATTERN = /^DIP\s+switch\s+=\s+(?<dipSwitchBits>\d+)/i; // DIP switch  = 10111111
-    static COUNT_READING_PATTERN = /^Conc\.\s+(?<concentration>[\d.]+)/i; // Conc.      0.00 #/cc
+    static COUNT_READING_PATTERN = /^(?<timestamp>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{3}Z)?\s*Conc\.\s+(?<concentration>[\d.]+)/i; // Conc.      0.00 #/cc
     static NEW_TEST_PATTERN = /^NEW\s+TEST\s+PASS\s*=\s*(?<passLevel>\d+)/i; // NEW TEST PASS =  100
     static AMBIENT_READING_PATTERN = /^Ambient\s+(?<concentration>[\d.]+)/i; // Ambient   2290 #/cc
     static MASK_READING_PATTERN = /^Mask\s+(?<concentration>[\d+.]+)/i; // Mask    5.62 #/cc
@@ -43,7 +73,8 @@ export class DataCollector {
     static LOW_PARTICLE_COUNT_PATTERN = /^(?<concentration>\d+)\/cc\s+Low\s+Particle\s+Count/i; // 970/cc Low Particle Count
 
     // external control response patterns
-    static EXTERNAL_CONTROL_PARTICLE_COUNT_PATTERN = /^\s*(?<concentration>\d+\.\d+)\s*/; // 006408.45
+    // 2024-10-24T17:38:02.876Z 005138.88
+    static EXTERNAL_CONTROL_PARTICLE_COUNT_PATTERN = /^(?<timestamp>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{3}Z)?\s*(?<concentration>\d+\.\d+)\s*/; // 006408.45
     static EXTERNAL_CONTROL_SAMPLING_FROM_MASK_PATTERN = /^VF$/;  // VF
     static EXTERNAL_CONTROL_SAMPLING_FROM_AMBIENT_PATTERN = /^VN$/;  // VN
     static EXTERNAL_CONTROL_DATA_TRANSMISSION_DISABLED_PATTERN = /^ZD$/; // ZD
@@ -57,21 +88,28 @@ export class DataCollector {
     logCallback;
     dataCallback;
     processedDataCallback;
+    previousTestData: SimpleResultsDBRecord | null = null;
     currentTestData: SimpleResultsDBRecord | null = null;
     lastExerciseNum: number = 0;
     sampleSource: string = "undefined";
     private control: ExternalControlStates;
     states: DataCollectorStates;
     private setResults: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>> | undefined;
-    private concentrationHistory: number[] = [];
-    private ambientConcentration:number = 0;
+
+    private fullConcentrationHistory: TimeseriesEntry[] = []; // this is used far graphing
+    private guestimatedAmbientConcentration: number = 0;
+    // exponential moving average of the concentration
+    private maCount5s: MovingAverage = MovingAverage(FIVE_SECONDS_IN_MS);
+    private maZoneConcentration20s: MovingAverage = MovingAverage(TWENTY_SECONDS_IN_MS); // TODO: use arithmetic average within the zone so all particles count the same?
+    private nextChartUpdateTime: number = 0; // next time (epoch time) that we should update the chart
 
     constructor(states: DataCollectorStates,
                 logCallback: (message: string) => void,
                 dataCallback: (message: string) => void,
                 processedDataCallback: (message: string) => void,
                 externalControlStates: ExternalControlStates,
-                resultsDatabase: SimpleResultsDB) {
+                resultsDatabase: SimpleResultsDB,
+    ) {
         this.logCallback = logCallback;
         this.dataCallback = dataCallback;
         this.processedDataCallback = processedDataCallback;
@@ -80,6 +118,15 @@ export class DataCollector {
         this.control = externalControlStates;
         this.states = states;
         console.log("DataCollector constructor called")
+        this.resetChart();
+    }
+
+    resetChart() {
+        this.fullConcentrationHistory = [];
+        this.guestimatedAmbientConcentration = 0;
+        this.maCount5s = MovingAverage(FIVE_SECONDS_IN_MS);
+        this.maZoneConcentration20s = MovingAverage(TWENTY_SECONDS_IN_MS);
+        this.nextChartUpdateTime = 0;
     }
 
     appendToLog(message: string) {
@@ -160,7 +207,6 @@ export class DataCollector {
         if (match) {
             const concentration = match.groups?.concentration;
             this.appendToProcessedData(`ambient concentration: ${concentration}\n`);
-            // this.currentTestData.samples.push({ambient: concentration});
             return;
         }
 
@@ -169,7 +215,6 @@ export class DataCollector {
             const concentration = match.groups?.concentration;
             this.appendToProcessedData(`mask concentration: ${concentration}\n`);
             this.setInstructions("Breathe normally");
-            // this.currentTestData.samples.push({mask: concentration});
             return;
         }
 
@@ -178,12 +223,9 @@ export class DataCollector {
             const ff = Number(match.groups?.fitFactor);
             const exerciseNum = Number(match.groups?.exerciseNumber || -1);
             const result = match.groups?.result || "unknown";
-            // this.appendToData(`Exercise ${exerciseNum}: Fit factor is ${ff}. Result: ${result}\n`)
             this.appendToProcessedData(`Exercise ${exerciseNum}: Fit factor is ${ff}. Result: ${result}\n`)
             this.setInstructionsForExercise(exerciseNum + 1);
             speech.sayItLater(`Score was ${ff}`)
-            // this.beginExerciseTimoutId = this.scheduleBeginExercisePrompt(exerciseNum+1);
-            // this.currentTestData.results.push({exercise_num: exerciseNum, fit_factor: ff, result: result});
             this.recordExerciseResult(exerciseNum, ff);
             return;
         }
@@ -194,7 +236,6 @@ export class DataCollector {
             const result: string = match.groups?.result || "";
             this.appendToProcessedData(`\nTest complete. ${result} with FF of ${ff}\n`);
             this.setInstructions(`Test complete. Score: ${ff}`);
-            // this.currentTestData.results.push({exercise_num: "overall", fit_factor: ff, result: result});
             this.appendToLog(JSON.stringify(this.currentTestData) + "\n");
             this.recordTestComplete(ff);
             return;
@@ -210,6 +251,7 @@ export class DataCollector {
         match = line.match(DataCollector.COUNT_READING_PATTERN) || line.match(DataCollector.EXTERNAL_CONTROL_PARTICLE_COUNT_PATTERN);
         if (match) {
             const concentration = Number(match.groups?.concentration);
+            const timestamp = match.groups?.timestamp;
             if (!speech.isSayingSomething()) {
                 if (this.states.sayParticleCount) {
                     const intConcentration = Math.ceil(concentration);
@@ -223,14 +265,15 @@ export class DataCollector {
                 this.appendToProcessedData(`${this.sampleSource}: ${concentration}\n`)
             }
 
-            if(this.states.autoEstimateFitFactor) {
-                this.processConcentration(concentration)
+            if (this.states.autoEstimateFitFactor) {
+                this.processConcentration(concentration, timestamp ? new Date(timestamp) : new Date())
             }
         }
     }
 
     recordTestComplete(ff: number) {
         this.recordExerciseResult("Final", ff);
+        this.previousTestData = this.currentTestData
         this.currentTestData = null; // flag done
     }
 
@@ -254,6 +297,22 @@ export class DataCollector {
         this.lastExerciseNum = 0;
         this.resultsDatabase.createNewTest(timestamp).then((newTestData) => {
             this.currentTestData = newTestData;
+
+            if (this.states.defaultToPreviousParticipant) {
+                // copy the string fields over from prev test data if present
+                if (this.previousTestData) {
+                    for (const key in this.previousTestData) {
+                        if (key in newTestData) {
+                            // don't copy fields that were assigned
+                            continue;
+                        }
+                        if (typeof this.previousTestData[key] === "string") {
+                            this.currentTestData[key] = this.previousTestData[key];
+                        }
+                    }
+                }
+            }
+
             console.log(`new test added: ${JSON.stringify(this.currentTestData)}`)
             if (this.setResults) {
                 // this triggers an update
@@ -311,6 +370,13 @@ export class DataCollector {
                         }
                     }
                 })
+            } else if (record.ID === this.previousTestData?.ID) {
+                /*
+                We're updating the previous record. If we don't have a current record, we must be updating the latest
+                record. In this case, we should update the local copy of the previous record so if we're propagating
+                the text fields over, we pick up these changes.
+                 */
+                this.previousTestData = record;
             }
             this.resultsDatabase.updateTest(record);
         } else {
@@ -339,107 +405,261 @@ export class DataCollector {
      * Sample size here is particle count.
      * Need to understand this calculation more: https://www.qualtrics.com/experience-management/research/margin-of-error/
      *
-     * For now, assume ambient concentrations don't vary by more than 15% over 4 seconds, and are over 100 particles.
-     * Any time we see an increase of more than 15%, assume we previously incorrectly recorded a mask reading as an ambient reading.
-     * In this case, try to get a few more ambient samples and update if the new values are stable.
-     * It's possible that ambient numbers are/were temporarily high, so if we find a new stable ambient level, we should update it,
-     * even if it's downward and appears to be a mask value.  Maybe require a longer stable time for this case.
      * @param concentration
      */
+    processConcentration(concentration: number, timestamp: Date = new Date()) {
+        if (isNaN(concentration)) {
+            // try to avoid problems
+            return;
+        }
+        // todo: consider moving median, see https://en.wikipedia.org/wiki/Moving_average#Moving_median
+        const msSinceEpoch = timestamp.getTime();
+        const prevRecord = this.fullConcentrationHistory.length > 0 ? this.fullConcentrationHistory[this.fullConcentrationHistory.length - 1] : undefined;
+        let sampleZone: SampleZone;
 
-    processConcentration(concentration: number) {
-        this.concentrationHistory.push(concentration);
+        /**
+         * todo: revisit this
+         * Assumptions:
+         * - Ambient levels are relatively stable. Assume stddev is within 10% of moving average
+         * - Mask levels are at most half of ambient. ie. FF of at least 2.
+         * - Whenever stddev is within 10% of moving average, and we're above 50% of previous ambient guess, update the ambient guess.
+         * - Assume we're fully in the mask when concentration is within 50% of moving average concentration AND we're below 50% of ambient.
+         * - Assume we're in the mask when stddev is > 10% of moving average concentration?
+         */
+        if (!this.guestimatedAmbientConcentration) {
+            // we don't have an estimate yet.
+            sampleZone = SampleZone.AMBIENT
+        } else if (concentration > this.guestimatedAmbientConcentration) {
+            // found a higher moving average, must be a new ambient
+            sampleZone = SampleZone.AMBIENT
+        } else if (this.maCount5s.movingAverage() < 0.5 * this.guestimatedAmbientConcentration) {
+            // average count is less than half of ambient guess. probably mask
+            sampleZone = SampleZone.MASK;
 
-        // find a plateau to use as ambient level
-
-        // naively find the plateau.
-        // look for consecutive data points that are within 15% of each other.
-        // if these are within 15% of the previous ambient, assume it's the new ambient.
-        // if these are much higher than the previous ambient, assume it's the new ambient.
-        let startIndex: number = 0;
-        let endIndex: number = 0;
-        let average: number = 0;
-        let ambientCandidate: number = this.ambientConcentration;
-        let unusedConcentration = false
-
-        this.concentrationHistory.forEach((conc, index) => {
-            if( average === 0) {
-                // just starting out
-                average = conc;
-                startIndex = index;
-                endIndex = index;
-                return;
-            }
-
-            const plateauWidth = endIndex-startIndex;
-            if (Math.abs(conc - average) / average < 0.15) {
-                // within 15%, could be within the same plateau
-                endIndex = index;
-                average = avg(this.concentrationHistory, startIndex, endIndex+1);
-                if(plateauWidth >= 4) {
-                    // we have more than 4 consecutive samples, probably found a plateau
-                    ambientCandidate = average;
-                }
-
-                console.log(`conc is ${conc}, average is ${average}, ambientCandidate is ${ambientCandidate}, startIndex: ${startIndex}, endIndex: ${endIndex}`);
-            } else {
-                // outside 15%. might have a plateau in the previous run.
-                if(plateauWidth > 4) {
-                    // Assuming samples are 1 second part, we've got 4 seconds of level samples. Let's call it a plateau
-                    if( average > ambientCandidate) {
-                        // plateau is higher than previous ambient, update it and reset
-                        ambientCandidate = average
-                        startIndex = index;
-                        endIndex = index;
-                        average = conc;
-                    } else {
-                        // new plateau is lower than previous ambient, but we don't know if it's a new ambient or if it's in the mask.
-                        unusedConcentration = true;
-                    }
-                } else {
-                    // not enough samples, skip the data points
-                    startIndex = index;
-                    endIndex = index
-                    average = conc;
-                }
-            }
-        })
-
-        console.log(`concentration is ${concentration}, ambientCandidate is ${ambientCandidate}`);
-        if(ambientCandidate > 0) {
-            this.ambientConcentration = ambientCandidate
-            this.states.setAmbientConcentration(ambientCandidate);
-
-            if(unusedConcentration) {
-                // the latest concentration number was not used to calculate the ambient candidate
-                // the latest concentration is below ambient candidate.
-                // If it's above ambient candidate, it means we likely found a new ambient and we're not in the mask,
-                // in which case, don't calculate estimated FF since that won't make sense
-                this.states.setMaskConcentration(concentration);
-                const estimatedFF = ambientCandidate / concentration;
-                this.states.setEstimatedFitFactor(estimatedFF)
-                if(this.states.sayEstimatedFitFactor) {
-                    speech.sayItPolitely(`Estimated Fit Factor is ${Number(estimatedFF).toFixed(0)}`)
-                }
-
-            } else {
-                // todo, reset mask and estimated ff? since we're in a transition period
-                this.states.setMaskConcentration(-1)
-                this.states.setEstimatedFitFactor(1)
-            }
-        } else if(this.ambientConcentration === 0) {
-            // we don't have an initial concentration yet, update it with what we have
-            this.states.setAmbientConcentration(average);
+        } else if (this.maCount5s.deviation() < 0.3 * this.guestimatedAmbientConcentration) {
+            // stddev is "near" guestimate, assume we're still in ambient
+            sampleZone = SampleZone.AMBIENT
+        } else {
+            sampleZone = SampleZone.UNKNOWN;
         }
 
-        // trim old values we no longer need
-        this.concentrationHistory.splice(0, startIndex);
-        endIndex+= startIndex; // adjust end index
+        if (sampleZone === SampleZone.AMBIENT) {
+            // if we're in the ambient zone, update the ambient guess
+            this.guestimatedAmbientConcentration = this.maCount5s.movingAverage();
+        }
 
-        // if history is too long, trim it
-        if(this.concentrationHistory.length > 30) {
-            this.concentrationHistory.splice(this.concentrationHistory.length-30);
-            endIndex -= Math.max(0, this.concentrationHistory.length-30);
+
+        let zoneFF: number = NaN;
+        // backfill to the beginning of the zone if we're in the mask zone
+        if (prevRecord && prevRecord.sampleZone === SampleZone.MASK) {
+            // todo: figure out how to determine purge zones. maybe look for first and last data points within stddev of the data in the zone?
+            // or first leftmost/rightmost datapoint outside of stddev moving from midpoint? must be within 10% of the end?
+
+            // if the previous zone was a mask zone, go back and fill in the FF data based on the full zone
+            let concentrationSum = 0;
+            // TODO: calculate purge segments. remove some leading and trailing data points within the zone
+            let ii = this.fullConcentrationHistory.length - 1;
+            let numRecords = 0;
+            for (; ii >= 0 && this.fullConcentrationHistory[ii].sampleZone === SampleZone.MASK; ii--) {
+                if (this.fullConcentrationHistory.length - ii > 5) {
+                    // skip the last 5 data points (seconds)
+                    concentrationSum += this.fullConcentrationHistory[ii].concentration;
+                    numRecords++;
+                }
+            }
+            // trim 5 data points from the front
+            // for(let kk = 0; kk < 5; kk++ ) {
+            //     concentrationSum -= this.fullConcentrationHistory[ii].concentration;
+            //     ii++;
+            // }
+            if (concentrationSum) {
+                zoneFF = numRecords * this.guestimatedAmbientConcentration / concentrationSum;
+                // for( ; ii < this.fullConcentrationHistory.length; ii++) {
+                //     this.fullConcentrationHistory[ii].zoneFF = zoneFF;
+                // }
+                if (prevRecord) {
+                    prevRecord.zoneFF = zoneFF;
+                    if (this.states.sayEstimatedFitFactor) {
+                        speech.sayItPolitely(`Estimated Fit Factor is ${Number(zoneFF).toFixed(0)}`)
+                    }
+                }
+            }
+        }
+
+        // update values
+        this.states.setAmbientConcentration(this.guestimatedAmbientConcentration);
+        if (sampleZone === SampleZone.MASK) {
+            this.states.setMaskConcentration(concentration);
+            // we're not in the mask, so there's no data to record for the mask.
+            // this.maEstimatedFF.push(msSinceEpoch, 1)
+            this.states.setEstimatedFitFactor(zoneFF)
+            const newGaugeOptions = deepCopy(this.states.gaugeOptions)
+            newGaugeOptions.series[0].data[0].value = zoneFF
+            this.states.setGaugeOptions(newGaugeOptions)
+
+        } else {
+            // we're not in the mask, so there's no data to record for the mask.
+            this.states.setMaskConcentration(-1)
+            this.states.setEstimatedFitFactor(NaN)
+        }
+
+        // update the chart
+        const record: TimeseriesEntry = {
+            ...timeSeriesEntryDerivedFields,
+            timestamp: timestamp,
+            concentration: concentration,
+            guestimatedAmbient: this.guestimatedAmbientConcentration,
+            emaConcentration: this.maCount5s.movingAverage(),
+            emaConcentrationStdDev: this.maCount5s.deviation(),
+            sampleZone: sampleZone,
+            zoneFF: zoneFF,
+        };
+
+
+        if (sampleZone === SampleZone.MASK) {
+            if (prevRecord && prevRecord.sampleZone === sampleZone) {
+                // have previous records (and we're in the same zone type)
+                record.emaConcentrationInZone = this.maZoneConcentration20s.movingAverage();
+                // cap stddev at some value
+                const emaZoneConcentrationStdDev = Math.min(0.3 * record.emaConcentrationInZone, this.maZoneConcentration20s.deviation());
+                const guestimatedAmbient = record.guestimatedAmbient || 0;
+                record.estimatedFitFactor = guestimatedAmbient / record.emaConcentrationInZone;
+                record.estimatedFitFactorBand = (guestimatedAmbient / (record.emaConcentrationInZone - emaZoneConcentrationStdDev)) - (guestimatedAmbient / (record.emaConcentrationInZone + emaZoneConcentrationStdDev))
+                record.estimatedFitFactorBandLower = guestimatedAmbient / (record.emaConcentrationInZone + emaZoneConcentrationStdDev);
+
+            } else {
+                // first record in the zone. no data is fine.
+                this.maZoneConcentration20s = MovingAverage(TWENTY_SECONDS_IN_MS); // reset
+            }
+        }
+        // append after we look backwards through history
+        this.fullConcentrationHistory.push(record);
+
+        // update moving averages after we've taken their snapshot
+        this.maCount5s.push(msSinceEpoch, concentration);
+        this.maZoneConcentration20s.push(msSinceEpoch, concentration);
+
+        // TODO: try to merge in new data instead of rebuilding it every time data point? esp for simulator data
+        const oldChartOptions: EChartsOption = this.states.chartOptions; //deepCopy(this.states.chartOptions)
+        oldChartOptions.dataset = {
+            dimensions: [
+                'timestamp',
+                'concentration',
+                'guestimatedAmbient',
+                'emaConcentration',
+                'emaConcentrationStdDev',
+                'sampleZone',
+                'emaConcentrationInZone',
+                'estimatedFitFactor',
+                'estimatedFitFactorBand',
+                'estimatedFitFactorBandLower',
+                'zoneFF'
+            ],
+
+            source: this.fullConcentrationHistory
+        }
+
+        // need to manually calculate min and max for log scale when using line charts https://github.com/apache/echarts/issues/19818
+        oldChartOptions.yAxis[0].type = 'log'
+        oldChartOptions.yAxis[0].min = Math.min(...oldChartOptions.dataset.source.map((v: TimeseriesEntry) => v.concentration));
+        oldChartOptions.yAxis[0].max = Math.max(...oldChartOptions.dataset.source.map((v: TimeseriesEntry) => v.concentration));
+
+        oldChartOptions.yAxis[1].type = 'value'
+        // oldChartOptions.yAxis[1].min = Math.min(...oldChartOptions.series[1].data.map(v => v[1]));
+        // oldChartOptions.yAxis[1].max = Math.max(...oldChartOptions.series[1].data.map(v => v[1]));
+
+        // update the zoom window
+        oldChartOptions.dataZoom[0].endValue = record.timestamp
+        oldChartOptions.dataZoom[0].startValue = record.timestamp.getTime() - 15 * 60 * 1000; // 15 minutes back
+
+
+        if (this.guestimatedAmbientConcentration > 0) {
+            // only map visually if we have an ambient candidate
+
+            const concentrationVisualMapConfig = {
+                type: "piecewise",
+                show: false,
+                seriesIndex: [0], // placeholder
+                dimension: '', // placeholder
+                pieces: [
+                    {
+                        // note: these ranges must be closed, eg. both upper and lower bounds must be specified
+                        gte: 100,
+                        lt: 100000,
+                        color: 'green',
+                    },
+                    {
+                        gte: 20,
+                        lt: 100,
+                        color: 'darkorange',
+                    },
+                    {
+                        gte: 0,
+                        lt: 20,
+                        color: 'darkred',
+                    },
+                ],
+                outOfRange: {
+                    color: '#999'
+                }
+            };
+            const estimatedFF = deepCopy(concentrationVisualMapConfig);
+            estimatedFF.dimension = 'estimatedFitFactor';
+            estimatedFF.seriesIndex = oldChartOptions.series.findIndex((series: {
+                name: string
+            }) => series.name === "estimated fit factor");
+            const zoneFF = deepCopy(concentrationVisualMapConfig);
+            zoneFF.dimension = 'zoneFF';
+            zoneFF.seriesIndex = oldChartOptions.series.findIndex((series: {
+                name: string
+            }) => series.name === "Zone FF");
+
+            oldChartOptions.visualMap = [
+                estimatedFF,
+                zoneFF,
+            ]
+        }
+
+        this.updateMarkArea(oldChartOptions, record);
+
+        // todo use a ref to get access to the underlying echart and call setOptions on it directly with only data
+        if (Date.now() > this.nextChartUpdateTime) {
+            // simple debounce
+            this.nextChartUpdateTime = Date.now() + 1000; // 1 second later
+            const newChartOptions = deepCopy(oldChartOptions); // make a new one so things that need to can see it's been updated
+            this.states.setChartOptions(newChartOptions); // propagate this to the chart
+            this.states.chartOptions = newChartOptions; // save state local to this class
+        }
+
+    }
+
+    updateMarkArea(chartOptions: EChartsOption, datum: TimeseriesEntry) {
+        const datumAreaName = datum.sampleZone
+        const markAreaData = chartOptions.series[0].markArea.data
+        const [start, end] = markAreaData.length > 0 ? markAreaData[markAreaData.length - 1] : [{}, {}]
+        if (start.name === datumAreaName) {
+            // still in the same block, extend it
+            end.xAxis = datum.timestamp
+        } else {
+            // changed, or new. create new area
+            const newArea = [
+                {
+                    xAxis: datum.timestamp,
+                    name: datumAreaName,
+                    itemStyle: {
+                        color: (datum.sampleZone === SampleZone.MASK)
+                            ? "wheat"
+                            : (datum.sampleZone === SampleZone.AMBIENT)
+                                ? "powderblue"
+                                : "black",
+                        opacity: 0.2,
+                    }
+                },
+                {
+                    xAxis: datum.timestamp
+                },
+            ];
+            markAreaData.push(newArea)
         }
     }
 
@@ -465,7 +685,12 @@ export interface DataCollectorStates {
     setEstimatedFitFactor: React.Dispatch<React.SetStateAction<number>>,
     setAmbientConcentration: React.Dispatch<React.SetStateAction<number>>,
     setMaskConcentration: React.Dispatch<React.SetStateAction<number>>,
-    autoEstimateFitFactor: boolean
+    autoEstimateFitFactor: boolean,
+    defaultToPreviousParticipant: boolean,
+    chartOptions: EChartsOption,
+    setChartOptions: React.Dispatch<React.SetStateAction<EChartsOption>>
+    gaugeOptions: EChartsOption,
+    setGaugeOptions: React.Dispatch<React.SetStateAction<EChartsOption>>
 }
 
 export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollector }) {

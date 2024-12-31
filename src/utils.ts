@@ -21,3 +21,14 @@ export function getFitFactorCssClass(fitFactor:number):string {
         return "result aborted"
     }
 }
+
+export function sum(theNumbers: number[], startIndex: number = 0, endIndex: number = -1) {
+    return theNumbers.slice(startIndex, endIndex).reduce((total, theNumber) => total + theNumber, 0)
+}
+
+export function avg(theNumbers: number[], startIndex: number = 0, endIndex: number = -1) {
+    if (endIndex < 0) {
+        endIndex = theNumbers.length;
+    }
+    return sum(theNumbers, startIndex, endIndex) / (endIndex - startIndex);
+}

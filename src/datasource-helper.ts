@@ -83,17 +83,18 @@ export interface PushSource {
 }
 
 export class DataFilePushSource implements PushSource {
-    static DEFAULT_DELAY_MS = 10;
+    static DEFAULT_BYTES_PER_SECOND = 1200;
     static encoder = new TextEncoder();
     reader : ReadableStreamDefaultReader<Uint8Array> | undefined;
     buffer : Uint8Array = new Uint8Array();
     bufferIndex = 0;
-    fileOrUrl : string;
-    delayMs : number;
+    fileOrUrl : string|File;
+    rateBytesPerSecond : number;
+    lastRequestTime: number = 0;
 
-    constructor(fileOrUrl : string, delayMs= DataFilePushSource.DEFAULT_DELAY_MS) {
+    constructor(fileOrUrl : string|File, bytesPerSecond= DataFilePushSource.DEFAULT_BYTES_PER_SECOND) {
         this.fileOrUrl = fileOrUrl;
-        this.delayMs = delayMs;
+        this.rateBytesPerSecond = Math.max(bytesPerSecond, 1); // make sure we always make progress
     }
 
     // Method returning promise when this push source is readable.
@@ -101,13 +102,18 @@ export class DataFilePushSource implements PushSource {
         if (this.bufferIndex >= this.buffer.length) {
             // need (more) data
             if (this.reader === undefined) {
-                this.reader = await fetch(this.fileOrUrl).then((result : Response) => {
-                    if (result.ok) {
-                        return result.body?.getReader();
-                    } else {
-                        throw new Error(`Failed to file: ${result.status}`);
-                    }
-                })
+                if(typeof this.fileOrUrl === "string") {
+                    this.reader = await fetch(this.fileOrUrl).then((result: Response) => {
+                        if (result.ok) {
+                            return result.body?.getReader();
+                        } else {
+                            throw new Error(`Failed to file: ${result.status}`);
+                        }
+                    })
+                } else {
+                    // it's a File
+                    this.reader = this.fileOrUrl.stream().getReader();
+                }
             }
 
             const result :ReadableStreamReadResult<Uint8Array> | undefined = await this.reader?.read();
@@ -126,14 +132,30 @@ export class DataFilePushSource implements PushSource {
         }
 
         // some data not sent
-        const end = this.bufferIndex + (this.bufferIndex + 3 < this.buffer.length ? 3 : this.buffer.length);
+        let now = Date.now();
+        let delay = 0;
+        if( now === this.lastRequestTime) {
+            // we've fully caught up. need to inject some delay. if we return no data, the stream is interpreted to have ended.
+            delay += 50
+            now += delay
+        }
+
+        const elapsedMs = now - (this.lastRequestTime || (now - 1000)); // if this is the first request, return 1 second of data
+        this.lastRequestTime = now;
+        const numBytesToReturn = Math.ceil(elapsedMs * this.rateBytesPerSecond / 1000)
+        const end = this.bufferIndex + (this.bufferIndex + numBytesToReturn < this.buffer.length ? numBytesToReturn : this.buffer.length);
         const chunk = this.buffer?.slice(this.bufferIndex, end);
         this.bufferIndex += chunk.length;
+        // console.log(`chunk size is ${chunk.length} bytes, elapsed ms is ${elapsedMs}`);
         return new Promise((resolve) => {
             // Emulate slow read of data
-            setTimeout(() => {
+            if( delay) {
+                setTimeout(() => {
+                    resolve(chunk);
+                }, delay);
+            } else {
                 resolve(chunk);
-            }, this.delayMs);
+            }
         });
     }
 
