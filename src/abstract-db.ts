@@ -101,8 +101,8 @@ export default abstract class AbstractDB {
         })
     }
 
-    async get(objectStore: string, key: string) {
-        return new Promise((resolve, reject) => {
+    async get<T>(objectStore: string, key: string):Promise<T> {
+        return new Promise<T>((resolve, reject) => {
             this.openTransaction("readonly").then((transaction) => {
                 const request = transaction.objectStore(objectStore).get(key);
                 request.onsuccess = () => {

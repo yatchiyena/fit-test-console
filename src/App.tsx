@@ -5,16 +5,17 @@ import {DataCollector, DataCollectorPanel, DataCollectorStates} from "./data-col
 import {SpeechSynthesisPanel} from "./speech-synthesis-panel.tsx";
 import {speech} from "./speech.ts"
 import {ExternalController, ExternalControlPanel, ExternalControlStates} from "./external-control.tsx";
-import {AppSettings, SimpleDB, SimpleResultsDB, useDBSetting} from "./database.ts";
+import {SimpleDB, SimpleResultsDB} from "./database.ts";
 import {downloadData} from "./html-data-downloader.ts";
 import {json2csv} from "json-2-csv";
 import {UsbSerialDrivers} from "./web-usb-serial-drivers.ts";
-import {FitTestProtocolPanel} from "./FitTestProtocolPanel.tsx";
 import {convertFitFactorToFiltrationEfficiency, getFitFactorCssClass} from "./utils.ts";
 import {SettingsCheckbox, SettingsSelect} from "./Settings.tsx";
 import ReactECharts from "echarts-for-react";
 import {EChartsOption} from "echarts-for-react/src/types.ts";
 import {isNull, isUndefined} from "json-2-csv/lib/utils";
+import {ProtocolSelector, SimpleFitTestProtocolPanel} from "./simple-protocol-editor.tsx";
+import {AppSettings, useDBSetting} from "./settings-db.ts";
 
 function fitFactorFormatter(value: number) {
     if (isNaN(value) || isUndefined(value) || isNull(value)) {
@@ -47,7 +48,7 @@ function App() {
     const [baudRate, setBaudRate] = useDBSetting(AppSettings.BAUD_RATE, "1200")
     const [showAdvancedControls, setShowAdvancedControls] = useDBSetting(AppSettings.ADVANCED_MODE, false);
     const [showExternalControl, setShowExternalControl] = useDBSetting(AppSettings.SHOW_EXTERNAL_CONTROL, false);
-    const [showProtocolEditor, setShowProtocolEditor] = useDBSetting(AppSettings.SHOW_PROTOCOL_EDITOR, false);
+    const [showSimpleProtocolEditor, setShowSimpleProtocolEditor] = useDBSetting(AppSettings.SHOW_SIMPLE_PROTOCOL_EDITOR, false);
     const [verboseSpeech, setVerboseSpeech] = useDBSetting(AppSettings.VERBOSE, false);
     const [sayParticleCount, setSayParticleCount] = useDBSetting(AppSettings.SAY_PARTICLE_COUNT, false)
     const [sayEstimatedFitFactor, setSayEstimatedFitFactor] = useDBSetting(AppSettings.SAY_ESTIMATED_FIT_FACTOR, true);
@@ -598,7 +599,7 @@ function App() {
                     rawDatabase?.addLine(line);
                 }
             }
-            dataCollector?.processLine(line);
+            await dataCollector?.processLine(line);
         }
         console.log("monitor reached end of reader");
     }
@@ -684,18 +685,19 @@ function App() {
                         <SettingsCheckbox label="External Control"
                                           value={showExternalControl}
                                           setValue={setShowExternalControl}></SettingsCheckbox>
-                        <SettingsCheckbox label="Protocol Editor"
-                                          value={showProtocolEditor}
-                                          setValue={setShowProtocolEditor}></SettingsCheckbox>
+                        <SettingsCheckbox label="Simple Protocol Editor"
+                                          value={showSimpleProtocolEditor}
+                                          setValue={setShowSimpleProtocolEditor}></SettingsCheckbox>
                     </fieldset>
                 </section> : null}
             {showExternalControl ? <div style={{display: "flex", width: "100%"}}>
                 <ExternalControlPanel control={externalController}/>
             </div> : null}
-            {showProtocolEditor ? <section style={{display: "flex", width: "100%"}}>
+            <ProtocolSelector onChange={(selectedProtocol) => dataCollector.setProtocol(selectedProtocol)} />
+            {showSimpleProtocolEditor ? <section style={{display: "flex", width: "100%"}}>
                 <fieldset style={{width: "100%"}}>
                     <legend>fit test protocols</legend>
-                    <FitTestProtocolPanel></FitTestProtocolPanel>
+                    <SimpleFitTestProtocolPanel></SimpleFitTestProtocolPanel>
                 </fieldset>
             </section> : null}
             {autoEstimateFitFactor ?

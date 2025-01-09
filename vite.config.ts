@@ -10,6 +10,7 @@ export default defineConfig({
           // cache all imports
           workbox: {
               globPatterns: ["**/*"],
+              maximumFileSizeToCacheInBytes: 3000000, // default is 2mb
           },
           // cache all assets public
           includeAssets: [

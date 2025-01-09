@@ -20,7 +20,8 @@ import {
 } from '@tanstack/react-table'
 
 import {useVirtualizer} from '@tanstack/react-virtual'
-import {AppSettings, SimpleResultsDBRecord, useDBSetting} from "./database.ts";
+import {SimpleResultsDBRecord} from "./database.ts";
+import {AppSettings} from "./settings-db.ts";
 import {download, generateCsv, mkConfig} from "export-to-csv";
 import {DataCollector} from "./data-collector.tsx";
 import {createMailtoLink} from "./html-data-downloader.ts";
@@ -29,6 +30,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import {useEditableColumn} from "./use-editable-column-hook.tsx";
 import {useSkipper} from "./use-skipper-hook.ts";
 import {convertFitFactorToFiltrationEfficiency, getFitFactorCssClass} from "./utils.ts";
+import {useDBSetting} from "./settings-db.ts";
 
 //This is a dynamic row height example, which is more complicated, but allows for a more realistic table.
 //See https://tanstack.com/virtual/v3/docs/examples/react/table for a simpler fixed row height example.
@@ -43,9 +45,26 @@ export function ResultsTable({dataCollector}: {
 
         const efficiencyPercentage = convertFitFactorToFiltrationEfficiency(fitFactor);
         const classes = getFitFactorCssClass(fitFactor)
-        return <span className={classes}>{fitFactor}<br/>{fitFactor>0 && <span
+        return <span className={classes}>{fitFactor}<br/>{fitFactor > 0 && <span
             className={"efficiency"}>{efficiencyPercentage}%</span>}
         </span>
+    }
+
+    // todo: make this a useCallback?
+    function createExerciseResultColumn(exerciseNum: number) {
+        return {
+            accessorKey: `Ex ${exerciseNum}`,
+            cell: getExerciseResultCell,
+            enableColumnFilter: false,
+            sortUndefined: undefined,
+            sortingFn: compareNumericString,
+            sortDescFirst: true,
+            size: 70,
+        };
+    }
+
+    function createExerciseResultColumns(numExercises: number) {
+        return Array.from(Array(numExercises).keys()).map((num) => createExerciseResultColumn(num+1))
     }
 
     function compareNumericString(rowA: Row<SimpleResultsDBRecord>, rowB: Row<SimpleResultsDBRecord>, id: string) {
@@ -112,42 +131,7 @@ export function ResultsTable({dataCollector}: {
                 cell: useEditableColumn,
                 size: 150,
             },
-            {
-                accessorKey: 'Ex 1',
-                cell: getExerciseResultCell,
-                enableColumnFilter: false,
-                sortUndefined: undefined,
-                sortingFn: compareNumericString,
-                sortDescFirst: true,
-                size: 70,
-            },
-            {
-                accessorKey: 'Ex 2',
-                cell: getExerciseResultCell,
-                enableColumnFilter: false,
-                sortUndefined: undefined,
-                sortingFn: compareNumericString,
-                sortDescFirst: true,
-                size: 70,
-            },
-            {
-                accessorKey: 'Ex 3',
-                cell: getExerciseResultCell,
-                enableColumnFilter: false,
-                sortUndefined: undefined,
-                sortingFn: compareNumericString,
-                sortDescFirst: true,
-                size: 70,
-            },
-            {
-                accessorKey: 'Ex 4',
-                cell: getExerciseResultCell,
-                enableColumnFilter: false,
-                sortUndefined: undefined,
-                sortingFn: compareNumericString,
-                sortDescFirst: true,
-                size: 70,
-            },
+            ...createExerciseResultColumns(8),
             {
                 accessorKey: 'Final',
                 cell: getExerciseResultCell,

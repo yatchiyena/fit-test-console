@@ -5,12 +5,15 @@ Collect data from PortaCount 8020a
 // data output patterns
 import {speech} from "./speech.ts";
 import {ExternalControlStates} from "./external-control.tsx";
-import {SETTINGS_DB, SimpleResultsDB, SimpleResultsDBRecord} from "./database.ts";
+import {SimpleResultsDB, SimpleResultsDBRecord} from "./database.ts";
+import {AppSettings} from "./settings-db.ts";
 import React, {RefObject, useEffect, useState} from "react";
 import {ResultsTable} from "./ResultsTable.tsx";
 import {EChartsOption} from "echarts-for-react/src/types.ts";
 import {deepCopy} from "json-2-csv/lib/utils";
 import MovingAverage from "moving-average"
+import {Content, JSONContent} from "vanilla-jsoneditor";
+import {SETTINGS_DB} from "./settings-db.ts";
 
 const FIVE_SECONDS_IN_MS: number = 5 * 1000;
 const TWENTY_SECONDS_IN_MS: number = 20 * 1000;
@@ -19,6 +22,7 @@ enum SampleZone {
     MASK = "mask",
     AMBIENT = "ambient",
     UNKNOWN = "unknown",
+    DON_DOFF = "purge",
 }
 
 /**
@@ -102,6 +106,7 @@ export class DataCollector {
     private maCount5s: MovingAverage = MovingAverage(FIVE_SECONDS_IN_MS);
     private maZoneConcentration20s: MovingAverage = MovingAverage(TWENTY_SECONDS_IN_MS); // TODO: use arithmetic average within the zone so all particles count the same?
     private nextChartUpdateTime: number = 0; // next time (epoch time) that we should update the chart
+    private selectedProtocol: string | undefined = undefined;
 
     constructor(states: DataCollectorStates,
                 logCallback: (message: string) => void,
@@ -139,23 +144,32 @@ export class DataCollector {
 
     setInstructions(message: string) {
         if (this.states.setInstructions) {
+            console.log(`setInstructions ${message}`)
             this.states.setInstructions(message)
         }
         speech.sayItLater(message); // make sure instructions are queued.
     }
 
-    setInstructionsForExercise(exerciseNum: number) {
-        // TODO: don't hardcode this
-        const exerciseInstructionsLookup: { [index: number]: string } = {
-            1: "Normal breathing. Breathe normally.",
-            2: "Heavy breathing. Take deep breaths.",
-            3: "Jaw movement. Read a passage, sing a song, talk, or pretend to do so.",
-            4: "Head movement. Look up, down, left, and right. Repeat."
+    async setInstructionsForExercise(exerciseNum: number) {
+        if (!this.selectedProtocol) {
+            // not ready. abort for now.
+            return;
         }
-        this.setInstructions(`Perform exercise ${exerciseNum}: ${exerciseInstructionsLookup[exerciseNum]}`);
+        // TODO: cache this and don't read from db all the time (maybe the db layer can do the caching)
+        const protocolInstructionSets: JSONContent = await this.settingsDatabase.getSetting<Content>(AppSettings.PROTOCOL_INSTRUCTION_SETS) as JSONContent;
+        const protocolInstructionSetsJson = protocolInstructionSets.json as { [key: string]: [] };
+        const protocolInstructionSet = protocolInstructionSetsJson[this.selectedProtocol]
+        const instructionsOrStageInfo = protocolInstructionSet[exerciseNum - 1];
+        const instructions = typeof instructionsOrStageInfo === "object" ? instructionsOrStageInfo["instructions"] : instructionsOrStageInfo as string
+
+        if (instructions) {
+            // We don't know the number of exercises the portacount will run. Just assume the currently selected protocol matches the portacount setting.
+            // So if there are no more instructions for this exercise num, assume we're done.
+            this.setInstructions(`Perform exercise ${exerciseNum}: ${instructions}`);
+        }
     }
 
-    processLine(line: string) {
+    async processLine(line: string) {
         // appendOutput(`processLine: ${line} (length: ${line.length})\n`);
         if (line.length === 0) {
             this.appendToLog("processLine() ignoring empty line\n");
@@ -199,7 +213,7 @@ export class DataCollector {
         if (match) {
             this.appendToProcessedData(`\nStarting a new test. ${new Date().toLocaleString()}\n`);
             this.setInstructionsForExercise(1);
-            this.recordTestStart();
+            await this.recordTestStart();
             return;
         }
 
@@ -287,41 +301,38 @@ export class DataCollector {
         this.updateCurrentRowInDatabase();
     }
 
-
-    recordTestStart(timestamp = new Date().toLocaleString()) {
+    async recordTestStart(timestamp = new Date().toLocaleString()) {
         if (!this.resultsDatabase) {
             console.log("database not ready");
             return;
         }
-
         this.lastExerciseNum = 0;
-        this.resultsDatabase.createNewTest(timestamp).then((newTestData) => {
-            this.currentTestData = newTestData;
+        const newTestData = await this.resultsDatabase.createNewTest(timestamp);
+        this.currentTestData = newTestData;
 
-            if (this.states.defaultToPreviousParticipant) {
-                // copy the string fields over from prev test data if present
-                if (this.previousTestData) {
-                    for (const key in this.previousTestData) {
-                        if (key in newTestData) {
-                            // don't copy fields that were assigned
-                            continue;
-                        }
-                        if (typeof this.previousTestData[key] === "string") {
-                            this.currentTestData[key] = this.previousTestData[key];
-                        }
+        if (this.states.defaultToPreviousParticipant) {
+            // copy the string fields over from prev test data if present
+            if (this.previousTestData) {
+                for (const key in this.previousTestData) {
+                    if (key in newTestData) {
+                        // don't copy fields that were assigned
+                        continue;
+                    }
+                    if (typeof this.previousTestData[key] === "string") {
+                        this.currentTestData[key] = this.previousTestData[key];
                     }
                 }
             }
+        }
 
-            console.log(`new test added: ${JSON.stringify(this.currentTestData)}`)
-            if (this.setResults) {
-                // this triggers an update
-                this.setResults((prev) => [...prev, newTestData]);
-            } else {
-                // shouldn't happen, but setResults callback starts off uninitialized
-                console.log("have current test data, but setResults callback hasn't been initialized. this shouldn't happen?")
-            }
-        })
+        console.log(`new test added: ${JSON.stringify(this.currentTestData)}`)
+        if (this.setResults) {
+            // this triggers an update
+            this.setResults((prev) => [...prev, newTestData]);
+        } else {
+            // shouldn't happen, but setResults callback starts off uninitialized
+            console.log("have current test data, but setResults callback hasn't been initialized. this shouldn't happen?")
+        }
     }
 
     recordExerciseResult(exerciseNum: number | string, ff: number) {
@@ -434,8 +445,14 @@ export class DataCollector {
             sampleZone = SampleZone.AMBIENT
         } else if (this.maCount5s.movingAverage() < 0.5 * this.guestimatedAmbientConcentration) {
             // average count is less than half of ambient guess. probably mask
-            sampleZone = SampleZone.MASK;
-
+            if (prevRecord?.sampleZone !== SampleZone.MASK
+                && this.maCount5s.deviation() > 1.5 * this.maCount5s.movingAverage()) {
+                // TODO: re-evaluate this
+                // if we're not in stable mask zone yet, and concentration is fluctuating too much, probably donning / doffing
+                sampleZone = SampleZone.DON_DOFF;
+            } else {
+                sampleZone = SampleZone.MASK;
+            }
         } else if (this.maCount5s.deviation() < 0.3 * this.guestimatedAmbientConcentration) {
             // stddev is "near" guestimate, assume we're still in ambient
             sampleZone = SampleZone.AMBIENT
@@ -666,6 +683,11 @@ export class DataCollector {
     // todo: use DataCollectorStates instead
     setResultsCallback(callback: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>>) {
         this.setResults = callback
+    }
+
+    setProtocol(protocol: string) {
+        console.log(`setProtocol ${protocol}`)
+        this.selectedProtocol = protocol;
     }
 }
 

@@ -2,8 +2,9 @@
  Text-to-speech functions
  */
 import {useCallback, useEffect, useRef} from "react";
-import {AppSettings, useDBSetting} from "./database.ts";
+import {AppSettings} from "./settings-db.ts";
 import {speech} from "./speech.ts";
+import {useDBSetting} from "./settings-db.ts";
 
 
 export function SpeechSynthesisPanel() {
