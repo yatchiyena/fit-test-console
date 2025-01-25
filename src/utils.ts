@@ -1,3 +1,4 @@
+import {isNull, isUndefined} from "json-2-csv/lib/utils";
 
 export function convertFitFactorToFiltrationEfficiency(fitFactor:number) {
     const efficiency = 100 * (1.0 - 1.0 / fitFactor);
@@ -31,4 +32,17 @@ export function avg(theNumbers: number[], startIndex: number = 0, endIndex: numb
         endIndex = theNumbers.length;
     }
     return sum(theNumbers, startIndex, endIndex) / (endIndex - startIndex);
+}
+
+export function formatFitFactor(value: number):string {
+    if (isNaN(value) || isUndefined(value) || isNull(value)) {
+        return "?";
+    }
+    if (value < 1) {
+        return value.toFixed(2);
+    } else if (value < 10) {
+        return value.toFixed(1);
+    } else {
+        return value.toFixed(0);
+    }
 }

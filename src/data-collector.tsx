@@ -4,16 +4,23 @@ Collect data from PortaCount 8020a
 
 // data output patterns
 import {speech} from "./speech.ts";
-import {ExternalControlStates} from "./external-control.tsx";
 import {SimpleResultsDB, SimpleResultsDBRecord} from "./database.ts";
-import {AppSettings} from "./settings-db.ts";
+import {AppSettings, SETTINGS_DB} from "./settings-db.ts";
 import React, {RefObject, useEffect, useState} from "react";
 import {ResultsTable} from "./ResultsTable.tsx";
 import {EChartsOption} from "echarts-for-react/src/types.ts";
 import {deepCopy} from "json-2-csv/lib/utils";
 import MovingAverage from "moving-average"
-import {Content, JSONContent} from "vanilla-jsoneditor";
-import {SETTINGS_DB} from "./settings-db.ts";
+import {JSONContent} from "vanilla-jsoneditor";
+import {
+    ControlSource,
+    DataTransmissionState,
+    FitFactorResultsEvent,
+    ParticleConcentrationEvent,
+    PortaCountListener
+} from "./portacount-client-8020.ts";
+import {SampleSource} from "./fit-test-protocol.ts";
+import {formatFitFactor} from "./utils.ts";
 
 const FIVE_SECONDS_IN_MS: number = 5 * 1000;
 const TWENTY_SECONDS_IN_MS: number = 20 * 1000;
@@ -55,7 +62,7 @@ const timeSeriesEntryDerivedFields = {
     zoneFF: undefined,
 }
 
-export class DataCollector {
+export class DataCollector implements PortaCountListener {
     static PORTACOUNT_VERSION_PATTERN = /^PORTACOUNT\s+PLUS\S+PROM\S+(?<version>.+)/i; // PORTACOUNT PLUS PROM V1.7
     static COPYRIGHT_PATTERN = /^COPYRIGHT.+/i; // COPYRIGHT(c)1992 TSI INC
     static LICENSE_PATTERN = /^ALL\s+RIGHTS\s+RESERVED/i; // ALL RIGHTS RESERVED
@@ -92,11 +99,11 @@ export class DataCollector {
     logCallback;
     dataCallback;
     processedDataCallback;
+    sourceDataToCopy: SimpleResultsDBRecord | null = null;
     previousTestData: SimpleResultsDBRecord | null = null;
     currentTestData: SimpleResultsDBRecord | null = null;
     lastExerciseNum: number = 0;
     sampleSource: string = "undefined";
-    private control: ExternalControlStates;
     states: DataCollectorStates;
     private setResults: React.Dispatch<React.SetStateAction<SimpleResultsDBRecord[]>> | undefined;
 
@@ -106,13 +113,14 @@ export class DataCollector {
     private maCount5s: MovingAverage = MovingAverage(FIVE_SECONDS_IN_MS);
     private maZoneConcentration20s: MovingAverage = MovingAverage(TWENTY_SECONDS_IN_MS); // TODO: use arithmetic average within the zone so all particles count the same?
     private nextChartUpdateTime: number = 0; // next time (epoch time) that we should update the chart
-    private selectedProtocol: string | undefined = undefined;
+    private selectedProtocol: string | undefined;
+    private inProgressTestPromiseChain: Promise<void> | undefined;
+    private controlSource: ControlSource = ControlSource.Internal;
 
     constructor(states: DataCollectorStates,
                 logCallback: (message: string) => void,
                 dataCallback: (message: string) => void,
                 processedDataCallback: (message: string) => void,
-                externalControlStates: ExternalControlStates,
                 resultsDatabase: SimpleResultsDB,
     ) {
         this.logCallback = logCallback;
@@ -120,10 +128,89 @@ export class DataCollector {
         this.processedDataCallback = processedDataCallback;
         this.resultsDatabase = resultsDatabase;
         this.settingsDatabase = SETTINGS_DB;
-        this.control = externalControlStates;
         this.states = states;
         console.log("DataCollector constructor called")
         this.resetChart();
+    }
+
+    // PortaCountListener interface
+    sampleSourceChanged(source: SampleSource): void {
+        console.log(`sampling from ${source}`)
+        this.appendToLog(`sampling from ${source}\n`);
+        this.sampleSource = source;
+    }
+
+    dataTransmissionStateChanged(dataTransmissionState: DataTransmissionState) {
+        this.appendToLog(`data transmission state: ${dataTransmissionState}`)
+    }
+
+    testStarted(timestamp: number) {
+        this.appendToProcessedData(`\nStarting a new test. ${new Date(timestamp).toLocaleString()}\n`);
+        this.setInstructionsForExercise(1);
+        this.inProgressTestPromiseChain = this.recordTestStart();
+    }
+    controlSourceChanged(source: ControlSource) {
+        this.controlSource = source;
+    }
+
+    fitFactorResultsReceived(results: FitFactorResultsEvent) {
+        const ff = results.ff
+        const exerciseNum = results.exerciseNum
+        const result = results.result
+        this.recordExerciseResult(exerciseNum, ff);
+
+        if(typeof exerciseNum === 'number') {
+            this.appendToProcessedData(`Exercise ${exerciseNum}: Fit factor is ${ff}. Result: ${result}\n`)
+            this.setInstructionsForExercise(exerciseNum + 1);
+            speech.sayItLater(`Score was ${ff}`)
+        } else {
+            // test finished
+            this.appendToProcessedData(`\nTest complete. ${result} with FF of ${ff}\n`);
+            this.setInstructions(`Test complete. Score: ${ff}`);
+            this.appendToLog(JSON.stringify(this.currentTestData) + "\n");
+            this.recordTestComplete();
+            speech.sayItLater(`Final score was ${ff}`)
+        }
+    }
+
+    testTerminated() {
+        this.appendToProcessedData(`\nTest aborted\n`);
+        this.setInstructions("Breathe normally");
+        this.recordTestAborted();
+        this.recordTestComplete()
+    }
+    particleConcentrationReceived(event: ParticleConcentrationEvent) {
+        this.appendToProcessedData(`${new Date(event.getTimestamp()).toISOString()}: ${event.source} concentration: ${event.concentration}\n`);
+
+        // handle realtime
+        // if we're in the middle of a test, ignore
+        if(this.currentTestData) {
+            // in the middle of a test. If it's a mask concentration, we're probably in a purge phase.
+            if(event.source === SampleSource.Mask) {
+                // todo: we don't technically need this.
+                this.setInstructions("Breathe normally");
+            }
+            // no need to further process concentration.
+            // TODO: if we're in custom protocol mode, we'd need to keep track
+            return
+        }
+        const concentration = event.concentration;
+        const timestamp = event.getTimestamp();
+        if (!speech.isSayingSomething()) {
+            if (this.states.sayParticleCount) {
+                const intConcentration = Math.ceil(concentration);
+                const roundedConcentration = intConcentration < 20 ? (Math.ceil(concentration * 10) / 10).toFixed(1) : intConcentration;
+                const message = this.states.verboseSpeech ? `Particle count is ${roundedConcentration}` : roundedConcentration.toString();
+                speech.sayIt(message);
+
+            }
+        }
+        if(this.controlSource === ControlSource.External) {
+            this.appendToProcessedData(`${this.sampleSource}: ${concentration}\n`)
+        }
+
+        // TODO: timestamp should always be present. check this
+        this.processConcentration(concentration, timestamp ? new Date(timestamp) : new Date())
     }
 
     resetChart() {
@@ -144,161 +231,65 @@ export class DataCollector {
 
     setInstructions(message: string) {
         if (this.states.setInstructions) {
-            console.log(`setInstructions ${message}`)
+            // console.log(`setInstructions ${message}`)
             this.states.setInstructions(message)
         }
         speech.sayItLater(message); // make sure instructions are queued.
     }
 
-    async setInstructionsForExercise(exerciseNum: number) {
+    setInstructionsForExercise(exerciseNum: number) {
         if (!this.selectedProtocol) {
             // not ready. abort for now.
             return;
         }
         // TODO: cache this and don't read from db all the time (maybe the db layer can do the caching)
-        const protocolInstructionSets: JSONContent = await this.settingsDatabase.getSetting<Content>(AppSettings.PROTOCOL_INSTRUCTION_SETS) as JSONContent;
-        const protocolInstructionSetsJson = protocolInstructionSets.json as { [key: string]: [] };
-        const protocolInstructionSet = protocolInstructionSetsJson[this.selectedProtocol]
-        const instructionsOrStageInfo = protocolInstructionSet[exerciseNum - 1];
-        const instructions = typeof instructionsOrStageInfo === "object" ? instructionsOrStageInfo["instructions"] : instructionsOrStageInfo as string
+        const selectedProtocol = this.selectedProtocol;
+        this.settingsDatabase.getSetting<JSONContent>(AppSettings.PROTOCOL_INSTRUCTION_SETS).then((protocolInstructionSets: JSONContent) => {
+            const protocolInstructionSetsJson = protocolInstructionSets.json as { [key: string]: [] };
+            const protocolInstructionSet = protocolInstructionSetsJson[selectedProtocol]
+            const instructionsOrStageInfo = protocolInstructionSet[exerciseNum - 1];
+            const instructions = typeof instructionsOrStageInfo === "object" ? instructionsOrStageInfo["instructions"] : instructionsOrStageInfo as string
 
-        if (instructions) {
-            // We don't know the number of exercises the portacount will run. Just assume the currently selected protocol matches the portacount setting.
-            // So if there are no more instructions for this exercise num, assume we're done.
-            this.setInstructions(`Perform exercise ${exerciseNum}: ${instructions}`);
-        }
+            if (instructions) {
+                // We don't know the number of exercises the portacount will run. Just assume the currently selected protocol matches the portacount setting.
+                // So if there are no more instructions for this exercise num, assume we're done.
+                this.setInstructions(`Perform exercise ${exerciseNum}: ${instructions}`);
+            }
+        });
     }
 
-    async processLine(line: string) {
-        // appendOutput(`processLine: ${line} (length: ${line.length})\n`);
-        if (line.length === 0) {
-            this.appendToLog("processLine() ignoring empty line\n");
-            return;
-        }
-        // this.appendToLog(`${line}\n`);
-        let match;
-
-        if (line.match(DataCollector.EXTERNAL_CONTROL_SAMPLING_FROM_MASK_PATTERN)) {
-            this.appendToLog("sampling from MASK\n");
-            this.sampleSource = "MASK"
-            this.control.setValvePosition("Sampling from Mask")
-            return;
-        }
-        if (line.match(DataCollector.EXTERNAL_CONTROL_SAMPLING_FROM_AMBIENT_PATTERN)) {
-            this.appendToLog("sampling from AMBIENT\n");
-            this.sampleSource = "AMBIENT"
-            this.control.setValvePosition("Sampling from Ambient")
-            return;
-        }
-        if (line.match(DataCollector.EXTERNAL_CONTROL_DATA_TRANSMISSION_DISABLED_PATTERN)) {
-            this.control.setDataTransmissionMode("Paused")
-            this.appendToLog("transmission disabled")
-            return;
-        }
-        if (line.match(DataCollector.EXTERNAL_CONTROL_DATA_TRANSMISSION_ENABLED_PATTERN)) {
-            this.control.setDataTransmissionMode("Transmitting")
-            this.appendToLog("transmission enabled")
-            return;
-        }
-        if (line.match(DataCollector.EXTERNAL_CONTROL_EXTERNAL_CONTROL_PATTERN)) {
-            this.control.setControlMode("External Control")
-            return;
-        }
-        if (line.match(DataCollector.EXTERNAL_CONTROL_INTERNAL_CONTROL_PATTERN)) {
-            this.control.setControlMode("Internal Control")
-            return;
-        }
-
-        match = line.match(DataCollector.NEW_TEST_PATTERN)
-        if (match) {
-            this.appendToProcessedData(`\nStarting a new test. ${new Date().toLocaleString()}\n`);
-            this.setInstructionsForExercise(1);
-            await this.recordTestStart();
-            return;
-        }
-
-        match = line.match(DataCollector.AMBIENT_READING_PATTERN);
-        if (match) {
-            const concentration = match.groups?.concentration;
-            this.appendToProcessedData(`ambient concentration: ${concentration}\n`);
-            return;
-        }
-
-        match = line.match(DataCollector.MASK_READING_PATTERN);
-        if (match) {
-            const concentration = match.groups?.concentration;
-            this.appendToProcessedData(`mask concentration: ${concentration}\n`);
-            this.setInstructions("Breathe normally");
-            return;
-        }
-
-        match = line.match(DataCollector.FIT_FACTOR_PATTERN);
-        if (match) {
-            const ff = Number(match.groups?.fitFactor);
-            const exerciseNum = Number(match.groups?.exerciseNumber || -1);
-            const result = match.groups?.result || "unknown";
-            this.appendToProcessedData(`Exercise ${exerciseNum}: Fit factor is ${ff}. Result: ${result}\n`)
-            this.setInstructionsForExercise(exerciseNum + 1);
-            speech.sayItLater(`Score was ${ff}`)
-            this.recordExerciseResult(exerciseNum, ff);
-            return;
-        }
-
-        match = line.match(DataCollector.OVERALL_FIT_FACTOR_PATTERN);
-        if (match) {
-            const ff = Number(match.groups?.fitFactor);
-            const result: string = match.groups?.result || "";
-            this.appendToProcessedData(`\nTest complete. ${result} with FF of ${ff}\n`);
-            this.setInstructions(`Test complete. Score: ${ff}`);
-            this.appendToLog(JSON.stringify(this.currentTestData) + "\n");
-            this.recordTestComplete(ff);
-            return;
-        }
-
-        if (line.match(DataCollector.TEST_TERMINATED_PATTERN)) {
-            this.appendToProcessedData(`\nTest aborted\n`);
-            this.setInstructions("Breathe normally");
-            this.recordTestAborted();
-            return;
-        }
-
-        match = line.match(DataCollector.COUNT_READING_PATTERN) || line.match(DataCollector.EXTERNAL_CONTROL_PARTICLE_COUNT_PATTERN);
-        if (match) {
-            const concentration = Number(match.groups?.concentration);
-            const timestamp = match.groups?.timestamp;
-            if (!speech.isSayingSomething()) {
-                if (this.states.sayParticleCount) {
-                    const intConcentration = Math.ceil(concentration);
-                    const roundedConcentration = intConcentration < 20 ? (Math.ceil(concentration * 10) / 10).toFixed(1) : intConcentration;
-                    const message = this.states.verboseSpeech ? `Particle count is ${roundedConcentration}` : roundedConcentration.toString();
-                    speech.sayIt(message);
-
-                }
-            }
-            if (line.match(DataCollector.EXTERNAL_CONTROL_PARTICLE_COUNT_PATTERN)) {
-                this.appendToProcessedData(`${this.sampleSource}: ${concentration}\n`)
-            }
-
-            if (this.states.autoEstimateFitFactor) {
-                this.processConcentration(concentration, timestamp ? new Date(timestamp) : new Date())
-            }
-        }
-    }
-
-    recordTestComplete(ff: number) {
-        this.recordExerciseResult("Final", ff);
-        this.previousTestData = this.currentTestData
-        this.currentTestData = null; // flag done
+    recordTestComplete() {
+        const fun = () => {
+            console.log(`test complete, id ${this.currentTestData?.ID}`)
+            this.previousTestData = this.currentTestData
+            this.currentTestData = null; // flag done
+        };
+        this.chain(fun) // need to chain
     }
 
     recordTestAborted() {
-        if (!this.currentTestData) {
-            console.log("no current row, ignoring");
-            return;
+        // todo: does this need to be chained with this.inProgressTestPromiseChain ?
+        const fun = () => {
+            if (!this.currentTestData) {
+                console.log("no current row, ignoring");
+                return;
+            }
+            this.currentTestData[`Ex ${this.lastExerciseNum + 1}`] = "aborted";
+            this.setInstructions("Test cancelled.");
+            this.updateCurrentRowInDatabase();
+            console.log('test aborted')
         }
-        this.currentTestData[`Ex ${this.lastExerciseNum + 1}`] = "aborted";
-        this.setInstructions("Test cancelled.");
-        this.updateCurrentRowInDatabase();
+        this.chain(fun)
+    }
+
+    // chain a function to the end of the test sequence promise so these get processed sequentially.
+    // should only be a problem when using the simulator because the datastream has no delay.
+    private chain(fun: () => void) {
+        if(this.inProgressTestPromiseChain) {
+            this.inProgressTestPromiseChain = this.inProgressTestPromiseChain.then(fun)
+        } else {
+            fun()
+        }
     }
 
     async recordTestStart(timestamp = new Date().toLocaleString()) {
@@ -306,20 +297,32 @@ export class DataCollector {
             console.log("database not ready");
             return;
         }
+        if (!this.selectedProtocol) {
+            console.log("protocols not loaded (not ready)")
+            return;
+        }
         this.lastExerciseNum = 0;
-        const newTestData = await this.resultsDatabase.createNewTest(timestamp);
+        const newTestData = await this.resultsDatabase.createNewTest(timestamp, this.selectedProtocol);
         this.currentTestData = newTestData;
 
         if (this.states.defaultToPreviousParticipant) {
             // copy the string fields over from prev test data if present
-            if (this.previousTestData) {
-                for (const key in this.previousTestData) {
+            if(this.previousTestData?.Mask || this.previousTestData?.Participant || this.previousTestData?.Notes) {
+                // the previous record had participant info. update the source pointer to it.
+                this.sourceDataToCopy = this.previousTestData;
+            }
+            if (this.sourceDataToCopy) {
+                for (const key in this.sourceDataToCopy) {
                     if (key in newTestData) {
                         // don't copy fields that were assigned
                         continue;
                     }
-                    if (typeof this.previousTestData[key] === "string") {
-                        this.currentTestData[key] = this.previousTestData[key];
+                    if(key.startsWith("Ex ") || key.startsWith("Final")) {
+                        // don't copy exercise results
+                        continue
+                    }
+                    if (typeof this.sourceDataToCopy[key] === "string") {
+                        this.currentTestData[key] = this.sourceDataToCopy[key];
                     }
                 }
             }
@@ -336,25 +339,28 @@ export class DataCollector {
     }
 
     recordExerciseResult(exerciseNum: number | string, ff: number) {
-        if (!this.currentTestData) {
-            console.log("no current row! ignoring");
-            return
-        }
-        if (typeof exerciseNum === "number") {
-            this.currentTestData[`Ex ${exerciseNum}`] = `${Math.floor(ff)}`
-            this.lastExerciseNum = exerciseNum;
-        } else {
-            this.currentTestData[`${exerciseNum}`] = `${Math.floor(ff)}`; // probably "Final"
-        }
+        const fun = () => {
+            if (!this.currentTestData) {
+                console.log("no current row! ignoring");
+                return
+            }
+            if (typeof exerciseNum === "number") {
+                this.currentTestData[`Ex ${exerciseNum}`] = `${Math.floor(ff)}`
+                this.lastExerciseNum = exerciseNum;
+            } else {
+                this.currentTestData[`${exerciseNum}`] = `${Math.floor(ff)}`; // probably "Final"
+            }
 
-        if (this.setResults) {
-            // update table data
-            this.setResults((prev) => [...prev]) // force an update by changing the ref
-        } else {
-            // shouldn't happen, but setResults callback starts off uninitialized
-            console.log("have current test data, but setResults callback hasn't been initialized. this shouldn't happen?")
+            if (this.setResults) {
+                // update table data
+                this.setResults((prev) => [...prev]) // force an update by changing the ref
+            } else {
+                // shouldn't happen, but setResults callback starts off uninitialized
+                console.log("have current test data, but setResults callback hasn't been initialized. this shouldn't happen?")
+            }
+            this.updateCurrentRowInDatabase();
         }
-        this.updateCurrentRowInDatabase();
+        this.chain(fun)
     }
 
     /**
@@ -511,7 +517,7 @@ export class DataCollector {
             // this.maEstimatedFF.push(msSinceEpoch, 1)
             this.states.setEstimatedFitFactor(zoneFF)
             const newGaugeOptions = deepCopy(this.states.gaugeOptions)
-            newGaugeOptions.series[0].data[0].value = zoneFF
+            newGaugeOptions.series[0].data[0].value = formatFitFactor(zoneFF)
             this.states.setGaugeOptions(newGaugeOptions)
 
         } else {

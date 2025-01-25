@@ -18,10 +18,11 @@ import {
     SortingState,
     useReactTable,
 } from '@tanstack/react-table'
+import LZString from 'lz-string'
 
 import {useVirtualizer} from '@tanstack/react-virtual'
 import {SimpleResultsDBRecord} from "./database.ts";
-import {AppSettings} from "./settings-db.ts";
+import {AppSettings, useDBSetting} from "./settings-db.ts";
 import {download, generateCsv, mkConfig} from "export-to-csv";
 import {DataCollector} from "./data-collector.tsx";
 import {createMailtoLink} from "./html-data-downloader.ts";
@@ -30,7 +31,6 @@ import "react-datepicker/dist/react-datepicker.css";
 import {useEditableColumn} from "./use-editable-column-hook.tsx";
 import {useSkipper} from "./use-skipper-hook.ts";
 import {convertFitFactorToFiltrationEfficiency, getFitFactorCssClass} from "./utils.ts";
-import {useDBSetting} from "./settings-db.ts";
 
 //This is a dynamic row height example, which is more complicated, but allows for a more realistic table.
 //See https://tanstack.com/virtual/v3/docs/examples/react/table for a simpler fixed row height example.
@@ -52,14 +52,17 @@ export function ResultsTable({dataCollector}: {
 
     // todo: make this a useCallback?
     function createExerciseResultColumn(exerciseNum: number) {
+        return createExerciseResultColumnBase(`Ex ${exerciseNum}`)
+    }
+    function createExerciseResultColumnBase(exercise: string) {
         return {
-            accessorKey: `Ex ${exerciseNum}`,
+            accessorKey: exercise,
             cell: getExerciseResultCell,
             enableColumnFilter: false,
             sortUndefined: undefined,
             sortingFn: compareNumericString,
             sortDescFirst: true,
-            size: 70,
+            size: 65,
         };
     }
 
@@ -132,14 +135,12 @@ export function ResultsTable({dataCollector}: {
                 size: 150,
             },
             ...createExerciseResultColumns(8),
+            createExerciseResultColumnBase("Final"),
             {
-                accessorKey: 'Final',
-                cell: getExerciseResultCell,
+                accessorKey: 'ProtocolName',
+                header: 'Protocol',
                 enableColumnFilter: false,
-                sortUndefined: undefined,
-                sortingFn: compareNumericString,
-                sortDescFirst: true,
-                size: 70,
+                size: 75,
             },
         ],
         []
@@ -218,7 +219,7 @@ export function ResultsTable({dataCollector}: {
         }));
     }, [dataCollector.resultsDatabase]);
 
-    function handleExportAsCsv() {
+    function generateCsvPayload() {
         const csvConfig = mkConfig({
             fieldSeparator: ',',
             filename: `fit-test-results-${new Date().getTime()}`,
@@ -229,6 +230,11 @@ export function ResultsTable({dataCollector}: {
         const rows = table.getSortedRowModel().rows
         const rowData = rows.map((row) => row.original)
         const csv = generateCsv(csvConfig)(rowData)
+        return {csvConfig, csv};
+    }
+
+    function handleExportAsCsv() {
+        const {csvConfig, csv} = generateCsvPayload();
         download(csvConfig)(csv)
     }
 
@@ -238,6 +244,7 @@ export function ResultsTable({dataCollector}: {
         const rows = table.getSortedRowModel().rows
         const rowData: SimpleResultsDBRecord[] = rows.map((row) => row.original)
         let body = "Your fit test results:\n\n"
+        // TODO: dynamically figure out field names
         const fields = ['Time', 'Participant', 'Mask', 'Notes', 'Ex 1', 'Ex 2', 'Ex 3', 'Ex 4', 'Final'];
         rowData.forEach((row) => {
             const rowInfo: string[] = []
@@ -254,11 +261,24 @@ export function ResultsTable({dataCollector}: {
         link.click()
     }
 
+    function generateQRCode() {
+        // first, extract data and compress it with lz-string
+        const {csv} = generateCsvPayload();
+        const str = LZString.compressToUTF16(csv)
+        location.replace(`/?data=${str}`)
+        // const decoded = LZString.decompressFromUTF16(str)
+        // const link = createMailtoLink("", "data", decoded)
+        // link.click()
+
+        // todo: generate qr code
+    }
+
     //All important CSS styles are included as inline styles for this example. This is not recommended for your code.
     return (
         <div>
             <input type={"button"} value={"Export as CSV"} onClick={() => handleExportAsCsv()}/>
             <input type={"button"} value={"Email"} onClick={() => handleMailto()}/>
+            <input type={"button"} value={"QR Code"} onClick={() => generateQRCode()}/>
             <div
                 className="container"
                 ref={tableContainerRef}

@@ -1,5 +1,5 @@
 #root {
-    max-width: 1280px;
+    max-width: 1600px;
     margin: 0 auto;
     padding: 2rem;
     text-align: center;
@@ -50,4 +50,9 @@
 
 .datePickerInput {
     width: 100px
+}
+
+.button {
+    margin-inline-start: 0.3rem;
+    margin-inline-end: 1rem;
 }

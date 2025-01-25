@@ -192,7 +192,7 @@ export class SimpleResultsDB extends AbstractDB {
      * Inserts an empty record into the database. This generates a new ID for the record.
      * Return the json representation of the data that was inserted. Includes the generated primary key.
      */
-    async createNewTest(timestamp: string): Promise<SimpleResultsDBRecord> {
+    async createNewTest(timestamp: string, protocolName:string): Promise<SimpleResultsDBRecord> {
         const transaction = this.openTransactionClassic("readwrite");
         if (!transaction) {
             console.log("database not ready");
@@ -201,6 +201,7 @@ export class SimpleResultsDB extends AbstractDB {
 
         const record = {
             Time: timestamp,
+            ProtocolName: protocolName
         };
         const request = transaction?.objectStore(SimpleResultsDB.TEST_RESULTS_OBJECT_STORE).add(record);
         return new Promise((resolve, reject) => {
@@ -235,8 +236,8 @@ export class SimpleResultsDB extends AbstractDB {
                 console.log(errorMessage);
                 reject(errorMessage);
             }
-            request.onsuccess = (event) => {
-                console.log(`updateTest request complete: ${JSON.stringify(event)}, record: ${JSON.stringify(record)}`);
+            request.onsuccess = () => {
+                // console.log(`updateTest request complete: ${JSON.stringify(event)}, record: ${JSON.stringify(record)}`);
                 resolve({ID: request.result}); // todo: return something more appropriate for an update
             }
         });

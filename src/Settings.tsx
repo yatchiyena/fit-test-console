@@ -1,4 +1,18 @@
 import {Dispatch, SetStateAction} from "react";
+import "./Settings.css"
+
+export function SettingsToggleButton({trueLabel, falseLabel, value, setValue}:{ trueLabel:string, falseLabel?: string, value: boolean, setValue: Dispatch<SetStateAction<boolean>>}){
+    const id = `${trueLabel.replace(/[^\p{L}\p{N}]/ui, "")}-settings-checkbox`;  // squash unicode non-alphanum
+    return(
+        <>
+            <label className="setting-name" htmlFor={id}>{value ? trueLabel : (falseLabel?falseLabel:trueLabel)}</label>
+            <label className="switch">
+                <input type="checkbox" id={id} onChange={(event) => setValue(event.target.checked)} checked={value}/>
+                <span className="slider round"></span>
+            </label>
+        </>
+    )
+}
 
 export function SettingsCheckbox({label, value, setValue}: {
     label: string,
@@ -30,6 +44,7 @@ export function SettingsSelect({label, value, setValue, options}: {
 
     return <>
         <div style={{display: "inline-block"}}>
+            <label htmlFor={id}>{label}: </label>
             <select id={id}
                     value={value}
                     onChange={e => setValue(e.target.value)
@@ -38,8 +53,7 @@ export function SettingsSelect({label, value, setValue, options}: {
                     return Object.entries(v).map(([label, value]) => <option key={value} value={value}>{label}</option>)
                 })}
             </select>
-            &nbsp;
-            <label htmlFor={id}>{label}</label>
+            &nbsp;&nbsp;
         </div>
     </>
 }

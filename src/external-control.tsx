@@ -5,6 +5,8 @@ The technical addendum describes the interface. Starts on page 13.
  */
 import React, {useEffect, useRef} from "react";
 import {speech} from "./speech.ts";
+import {ControlSource, DataTransmissionState, PortaCountListener} from "./portacount-client-8020.ts";
+import {SampleSource} from "./fit-test-protocol.ts";
 
 export interface ExternalControlStates {
     dataTransmissionMode: string;
@@ -15,7 +17,7 @@ export interface ExternalControlStates {
     readonly setControlMode: React.Dispatch<React.SetStateAction<string>>;
 }
 
-export class ExternalController {
+export class ExternalController implements PortaCountListener {
     static INVOKE_EXTERNAL_CONTROL = "J";
     static RELEASE_FROM_EXTERNAL_CONTROL = "G";
     static TEST_TO_SEE_N95_COMPANION_IS_ATTACHED = "Q";
@@ -48,6 +50,18 @@ export class ExternalController {
     constructor(externalControlStates: ExternalControlStates) {
         this.states = externalControlStates;
     }
+
+    // PortaCountListener interface
+    sampleSourceChanged(source: SampleSource): void {
+        this.states.setValvePosition(`Sampling from ${source}`)
+    }
+    dataTransmissionStateChanged(dataTransmissionState: DataTransmissionState) {
+        this.states.setDataTransmissionMode(dataTransmissionState)
+    }
+    controlSourceChanged(source: ControlSource) {
+        this.states.setControlMode(`${source} Control`);
+    }
+
 
     setWriter(writer: WritableStreamDefaultWriter<Uint8Array>) {
         this.writer = writer;

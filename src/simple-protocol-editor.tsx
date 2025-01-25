@@ -14,28 +14,32 @@ import {useEffect, useRef} from 'react';
 import "./simple-protocol-editor.css";
 import {useDBSetting, AppSettings} from "./settings-db.ts";
 
-export function ProtocolSelector({onChange}:{onChange:(value:string) => void}) {
+export function ProtocolSelector({onChange}: { onChange: (value: string) => void }) {
     const [protocols] = useDBSetting<JSONContent>(AppSettings.PROTOCOL_INSTRUCTION_SETS)
     const protocolNames = Object.keys(protocols.json as object);
     const [protocol, setProtocol] = useDBSetting<string>(AppSettings.SELECTED_PROTOCOL, protocolNames[0])
-    function updateProtocol(protocolName:string) {
+
+    function updateProtocol(protocolName: string) {
         setProtocol(protocolName); // update this component's state
         onChange(protocolName); // update the data collector's state
     }
+
     useEffect(() => {
-        if(!protocol) {
+        if (!protocol) {
             updateProtocol(protocolNames[0])
         } else {
             // protocol list changed, but we have a selected protocol from settings
             updateProtocol(protocol);
         }
     }, [protocols]);
-    return (<>
-        <select onChange={(event) => updateProtocol(event.target.value)}
-                value={protocol} defaultValue={protocolNames[0]}>
-            { protocolNames.map((protocolName) => <option key={protocolName} value={protocolName}>{protocolName}</option>)}
-        </select>
-    </>)
+    return (<div style={{display:"inline-block", paddingInlineEnd:"0.5em"}}>
+            Protocol:&nbsp;
+            <select onChange={(event) => updateProtocol(event.target.value)}
+                    value={protocol} defaultValue={protocolNames[0]}>
+                {protocolNames.map((protocolName) => <option key={protocolName}
+                                                             value={protocolName}>{protocolName}</option>)}
+            </select>
+    </div>)
 }
 
 export function SimpleFitTestProtocolPanel(props: JSONEditorPropsOptional) {
@@ -74,8 +78,8 @@ export function SimpleFitTestProtocolPanel(props: JSONEditorPropsOptional) {
                                 type: "object",
                                 properties: {
                                     "instructions": {type: "string"},
-                                    "purge-duration": {type: "integer", minimum: 4, maximum: 10},
-                                    "sample-duration": {type: "integer", minimum: 4, maximum: 60},
+                                    "purge_duration": {type: "integer", minimum: 4, maximum: 10},
+                                    "sample_duration": {type: "integer", minimum: 4, maximum: 60},
                                 },
                                 required: ["instructions"],
                                 additionalProperties: false

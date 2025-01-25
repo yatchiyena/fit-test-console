@@ -1,37 +1,53 @@
 import React, {ChangeEvent, RefObject, useEffect, useState} from 'react'
 import './App.css'
-import {DataFilePushSource, getLines, getReadableStreamFromDataSource} from "./datasource-helper.ts";
+import {DataFilePushSource, getReadableStreamFromDataSource} from "./datasource-helper.ts";
 import {DataCollector, DataCollectorPanel, DataCollectorStates} from "./data-collector.tsx";
-import {SpeechSynthesisPanel} from "./speech-synthesis-panel.tsx";
+import {EnableSpeechSwitch, SpeechVoiceSelector} from "./speech-voice-selector.tsx";
 import {speech} from "./speech.ts"
 import {ExternalController, ExternalControlPanel, ExternalControlStates} from "./external-control.tsx";
 import {SimpleDB, SimpleResultsDB} from "./database.ts";
 import {downloadData} from "./html-data-downloader.ts";
-import {json2csv} from "json-2-csv";
 import {UsbSerialDrivers} from "./web-usb-serial-drivers.ts";
-import {convertFitFactorToFiltrationEfficiency, getFitFactorCssClass} from "./utils.ts";
-import {SettingsCheckbox, SettingsSelect} from "./Settings.tsx";
-import ReactECharts from "echarts-for-react";
+import {convertFitFactorToFiltrationEfficiency, formatFitFactor, getFitFactorCssClass} from "./utils.ts";
+import {SettingsSelect, SettingsToggleButton} from "./Settings.tsx";
+
+// import ReactECharts from "echarts-for-react";
+import ReactEChartsCore from 'echarts-for-react/lib/core';
+import * as echarts from 'echarts/core';
+import {GaugeChart, LineChart} from "echarts/charts";
+import {
+    AxisPointerComponent,
+    DatasetComponent,
+    DataZoomComponent,
+    GridComponent,
+    LegendComponent,
+    MarkAreaComponent,
+    SingleAxisComponent,
+    TimelineComponent,
+    TooltipComponent,
+    VisualMapComponent
+} from "echarts/components";
+import {CanvasRenderer} from "echarts/renderers";
+
 import {EChartsOption} from "echarts-for-react/src/types.ts";
-import {isNull, isUndefined} from "json-2-csv/lib/utils";
+import {deepCopy} from "json-2-csv/lib/utils";
 import {ProtocolSelector, SimpleFitTestProtocolPanel} from "./simple-protocol-editor.tsx";
 import {AppSettings, useDBSetting} from "./settings-db.ts";
+import {CustomProtocolPanel} from "./custom-protocol-panel.tsx";
+import {ProtocolExecutor} from "./protocol-executor.ts";
+import {JSONContent} from "vanilla-jsoneditor";
+import {ProtocolDefinition, ShortStageDefinition, StageDefinition} from "./simple-protocol.ts";
+import {PortaCountClient8020, PortaCountListener} from "./portacount-client-8020.ts";
+import {PortaCountState} from "./portacount-state.tsx";
+import {useSearchParams} from "react-router";
+import LZString from "lz-string";
 
-function fitFactorFormatter(value: number) {
-    if (isNaN(value) || isUndefined(value) || isNull(value)) {
-        return "?";
-    }
-    if (value < 1) {
-        return value.toFixed(2);
-    } else if (value < 10) {
-        return value.toFixed(1);
-    } else {
-        return value.toFixed(0);
-    }
-}
+echarts.use([DatasetComponent, LineChart, GaugeChart, GridComponent, SingleAxisComponent, TooltipComponent, AxisPointerComponent, TimelineComponent,
+    MarkAreaComponent, LegendComponent, DataZoomComponent, VisualMapComponent, CanvasRenderer]);
 
 function App() {
     const simulationSpeedsBytesPerSecond: number[] = [300, 1200, 14400, 28800, 56760];
+    const [showSettings, setShowSettings] = useDBSetting<boolean>(AppSettings.SHOW_SETTINGS, false);
     const [dataSource, setDataSource] = useState<string>("web-serial")
     const [simulationSpeedBytesPerSecond, setSimulationSpeedBytesPerSecond] = useState<number>(simulationSpeedsBytesPerSecond[simulationSpeedsBytesPerSecond.length - 1]);
     const [dataToDownload, setDataToDownload] = useState<string>("all-results")
@@ -54,6 +70,8 @@ function App() {
     const [sayEstimatedFitFactor, setSayEstimatedFitFactor] = useDBSetting(AppSettings.SAY_ESTIMATED_FIT_FACTOR, true);
     const [autoEstimateFitFactor, setAutoEstimateFitFactor] = useDBSetting(AppSettings.AUTO_ESTIMATE_FIT_FACTOR, false);
     const [defaultToPreviousParticipant, setDefaultToPreviousParticipant] = useDBSetting(AppSettings.DEFAULT_TO_PREVIOUS_PARTICIPANT, false);
+    const [protocolExecutor] = useState<ProtocolExecutor>(new ProtocolExecutor());
+    const [protocolDefinitions] = useDBSetting<JSONContent>(AppSettings.PROTOCOL_INSTRUCTION_SETS)
 
     const [resultsDatabase] = useState(() => new SimpleResultsDB());
     const [rawDatabase] = useState(() => new SimpleDB());
@@ -86,7 +104,7 @@ function App() {
             axisPointer: {
                 type: 'cross',
             },
-            valueFormatter: fitFactorFormatter,
+            valueFormatter: formatFitFactor,
             position: function (pos: Array<number>, _params: object | Array<object>, _el: HTMLElement, _elRect: object, size: {
                 contentSize: number[],
                 viewSize: number[]
@@ -228,66 +246,6 @@ function App() {
                 },
                 showSymbol: false, // hides the point until mouseover
             },
-            // {
-            //     name: 'estimated fit factor',
-            //     type: 'line',
-            //     encode: {
-            //         x: ['timestamp'],
-            //         y: ['estimatedFitFactor'],
-            //     },
-            //     yAxisIndex: 1,
-            //     xAxisIndex: 1,
-            //     lineStyle: {
-            //         width: 3,
-            //     },
-            //     itemStyle: {
-            //         // opacity: 0, // hide
-            //     },
-            //     showSymbol: false, // hides the point until mouseover
-            // },
-            // {
-            //     name: 'estimatedFF bottom',
-            //     type: 'line',
-            //     encode: {
-            //         x: ['timestamp'],
-            //         y: ['estimatedFitFactorBandLower'],
-            //     },
-            //     yAxisIndex: 1,
-            //     xAxisIndex: 1,
-            //     lineStyle: {
-            //         width: 1,
-            //         opacity: 0, // hidden
-            //     },
-            //     itemStyle: {
-            //         opacity: 0, // hidden
-            //     },
-            //     tooltip: {
-            //         show: false,
-            //     },
-            //     stack: "estimatedFFBand",
-            // },
-            // {
-            //     name: 'FF variance',
-            //     type: 'line',
-            //     encode: {
-            //         x: ['timestamp'],
-            //         y: ['estimatedFitFactorBand'],
-            //     },
-            //     yAxisIndex: 1,
-            //     xAxisIndex: 1,
-            //     lineStyle: {
-            //         width: 1,
-            //         opacity: 0, // hidden
-            //     },
-            //     itemStyle: {
-            //         opacity: 0, // hidden
-            //     },
-            //     areaStyle: {
-            //         // since we're stacking, the upper bound series should come after the lower bound series, and should be expressed as the increment over the lower bound.
-            //         color: "wheat",
-            //     },
-            //     stack: "estimatedFFBand",
-            // },
             {
                 name: 'Zone FF',
                 type: 'line',
@@ -317,11 +275,11 @@ function App() {
                 max: 200,
                 detail: {
                     valueAnimation: true,
-                    formatter: fitFactorFormatter,
-                    color: 'auto'
+                    formatter: formatFitFactor,
+                    color: 'inherit'
                 },
                 axisLabel: {
-                    color: 'auto',
+                    color: 'inherit',
                     distance: 10,
                 },
                 axisLine: {
@@ -335,10 +293,10 @@ function App() {
                     }
                 },
                 axisTick: {
-                    show:false,
+                    show: false,
                     length: 2,
                     lineStyle: {
-                        color: 'auto',
+                        color: 'inherit',
                         width: 2
                     }
                 },
@@ -346,13 +304,13 @@ function App() {
                     distance: 0,
                     length: 5,
                     lineStyle: {
-                        color: 'auto',
+                        color: 'inherit',
                         width: 1
                     },
                 },
                 pointer: {
                     itemStyle: {
-                        color: 'auto',
+                        color: 'inherit',
                     }
                 },
                 data: [
@@ -388,7 +346,24 @@ function App() {
 
     const [dataCollectorStates] = useState(initialDataCollectorState);
     const [dataCollector] = useState(() => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
-        processedDataCallback, externalControlStates, resultsDatabase))
+        processedDataCallback, resultsDatabase))
+    const [portaCountClient] = useState(new PortaCountClient8020())
+    const [searchParams, setSearchParams] = useSearchParams()
+
+    // TODO: process the url data then clear it. changing url params acts like navigation tho.
+    // setSearchParams((prev) => {
+    //     prev.delete("data")
+    //     return prev;
+    // })
+
+    useEffect(() => {
+        portaCountClient.addListener(dataCollector);
+        portaCountClient.addListener(externalController);
+        return () => {
+            portaCountClient.removeListener(dataCollector)
+            portaCountClient.removeListener(externalController)
+        };
+    }, []);
 
     useEffect(() => {
         console.log(`initializing raw logs db`)
@@ -506,10 +481,6 @@ function App() {
                 // downloadRawData(rawConsoleData, "raw-fit-test-data");
                 downloadAllRawDataAsJSON()
                 break;
-            case "all-results":
-                // downloadTableAsCSV(table, "fit-test-results");
-                downloadAllResultsAsCSV();
-                break;
             default:
                 console.log(`unsupported data to download: ${dataToDownload}`);
         }
@@ -521,19 +492,6 @@ function App() {
             downloadData(JSON.stringify(data), "fit-test-all-raw-data", "json");
         })
     }
-
-    function downloadAllResultsAsCSV() {
-        // TODO: use the same column order as results table instead of hardcoding
-        // "ID":39,"Time":"11/19/2024, 11:18:52 PM","Ex 1":"983","Ex 2":"425","Ex 3":"24","Ex 4":"832","Final":"89"}
-        resultsDatabase.getAllData().then(data => {
-            const csv = json2csv(data, {
-                keys: ['ID', 'Time', 'Participant', 'Mask', 'Notes', 'Ex 1', 'Ex 2', 'Ex 3', 'Ex 4', 'Final'],
-                emptyFieldValue: "",
-            })
-            downloadData(csv, "fit-test-all-results", "csv");
-        });
-    }
-
 
     function connectViaWebUsbSerial() {
         const serial = new UsbSerialDrivers()
@@ -589,19 +547,25 @@ function App() {
         }
     }
 
+    // module for parsing, module for controlling, module for displaying state and controls
     async function monitor(reader: ReadableStreamDefaultReader<Uint8Array>, saveToDb: boolean = true) {
-        for await (const line of getLines(reader)) {
-            const timestamp = new Date().toISOString();
-            if (line.trim().length > 0) {
-                // we only care about non-empty lines
-                appendRaw(`${timestamp} ${line}\n`); // not really raw anymore since we've re-chunked into lines.
-                if (saveToDb) {
-                    rawDatabase?.addLine(line);
+        class LineListener implements PortaCountListener {
+            lineReceived(line: string) {
+                const timestamp = new Date().toISOString();
+                if (line.trim().length > 0) {
+                    // we only care about non-empty lines
+                    appendRaw(`${timestamp} ${line}\n`); // not really raw anymore since we've re-chunked into lines.
+                    if (saveToDb) {
+                        rawDatabase?.addLine(line);
+                    }
                 }
             }
-            await dataCollector?.processLine(line);
         }
-        console.log("monitor reached end of reader");
+
+        const listener = new LineListener();
+        portaCountClient.addListener(listener)
+        await portaCountClient.monitor(reader);
+        portaCountClient.removeListener(listener);
     }
 
 
@@ -617,27 +581,49 @@ function App() {
     }
 
 
+    function setSelectedProtocol(selectedProtocol: string) {
+        dataCollector.setProtocol(selectedProtocol);
+        const protocol = (protocolDefinitions.json as ProtocolDefinition)[selectedProtocol];
+        const stages = protocol.map((item) => {
+            let stageDefinition: StageDefinition;
+            if (typeof item === "string") {
+                stageDefinition = {
+                    instructions: item,
+                };
+            } else if ((item as StageDefinition).instructions !== undefined) {
+                stageDefinition = deepCopy(item) as StageDefinition
+            } else if ((item as ShortStageDefinition).i !== undefined) {
+                const ssd = item as ShortStageDefinition;
+                stageDefinition = {
+                    instructions: ssd.i,
+                    purge_duration: ssd.p,
+                    sample_duration: ssd.s
+                }
+            } else {
+                console.error(`unexpected item in protocol definition: ${JSON.stringify(item)}`)
+                return;
+            }
+            return stageDefinition;
+        }).filter((value) => {
+            return value !== undefined
+        });
+        protocolExecutor.setStages(stages)
+    }
+
     return (
         <>
             <section id="data-source-baud-rate" style={{display: 'flex', width: '100%'}}>
                 <fieldset style={{maxWidth: "fit-content", float: "left"}}>
-                    {`mftc v${__APP_VERSION__}`}&nbsp;
-                    <SettingsSelect label={"Baud"} value={baudRate} setValue={setBaudRate}
-                                    options={[
-                                        {"300": "300"},
-                                        {"600": "600"},
-                                        {"1200": "1200"},
-                                        {"2400": "2400"},
-                                        {"9600": "9600"}
-                                    ]}/>
-                    &nbsp; &nbsp;
-                    Data Source: &nbsp;
+                    {`mftc v${__APP_VERSION__} ${import.meta.env.MODE}`}
+                </fieldset>
+                <fieldset>
+                    Data Source:&nbsp;
                     <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}>
                         <option value="web-serial">WebSerial</option>
                         <option value="web-usb-serial">Web USB Serial</option>
                         <option value="simulator">Simulator</option>
                         <option value="database">Database</option>
-                    </select> &nbsp;
+                    </select>
                     {dataSource === "simulator" ?
                         <select id="simulator-data-file"
                                 value={simulationSpeedBytesPerSecond}
@@ -645,55 +631,70 @@ function App() {
                             {simulationSpeedsBytesPerSecond.map((bytesPerSecond: number) => <option key={bytesPerSecond}
                                                                                                     value={bytesPerSecond}>{bytesPerSecond}</option>)}
                         </select> : null}
-                    <input type="button" value="Connect" id="connect-button" onClick={connectButtonClickHandler}/>
-                </fieldset>
-                <fieldset style={{maxWidth: "fit-content", float: "left"}}>
+                    <input className="button" type="button" value="Connect" id="connect-button"
+                           onClick={connectButtonClickHandler}/>
+                    <ProtocolSelector
+                        onChange={(selectedProtocol) => setSelectedProtocol(selectedProtocol)}/>&nbsp;&nbsp;
+
                     <select id="download-file-format-selector" defaultValue={dataToDownload}
                             onChange={downloadFileFormatChanged}>
-                        <option value="all-results">All Results as CSV</option>
                         <option value="all-raw-data">All Raw data as json</option>
                     </select>
-                    <input type="button" value="Download!" id="download-button" onClick={downloadButtonClickHandler}/>
+                    <input className="button" type="button" value="Download!" id="download-button"
+                           onClick={downloadButtonClickHandler}/>
+                    <SettingsToggleButton trueLabel={"Show Settings"} value={showSettings} setValue={setShowSettings}/>
                 </fieldset>
             </section>
-            <section id="speech-synth" style={{display: 'flex', width: '100%'}}>
-                <fieldset style={{width: "100%", textAlign: "left"}}>
-                    <SpeechSynthesisPanel/>
-                    <SettingsCheckbox label="Verbose"
-                                      value={verboseSpeech}
-                                      setValue={setVerboseSpeech}></SettingsCheckbox>
-                    <SettingsCheckbox label="Say particle count"
-                                      value={sayParticleCount}
-                                      setValue={setSayParticleCount}></SettingsCheckbox>
-                    <SettingsCheckbox label="Advanced"
-                                      value={showAdvancedControls}
-                                      setValue={setShowAdvancedControls}></SettingsCheckbox>
-                </fieldset>
-            </section>
-            {showAdvancedControls ?
-                <section id="advanced-settings" style={{display: "flex", width: "100%"}}>
-                    <fieldset style={{width: "100%", textAlign: "left"}}>
-                        <SettingsCheckbox label="Auto-estimate FF"
-                                          value={autoEstimateFitFactor}
-                                          setValue={setAutoEstimateFitFactor}></SettingsCheckbox>
-                        <SettingsCheckbox label="Say estimated FF"
-                                          value={sayEstimatedFitFactor}
-                                          setValue={setSayEstimatedFitFactor}></SettingsCheckbox>
-                        <SettingsCheckbox label="Default to previous participant"
-                                          value={defaultToPreviousParticipant}
-                                          setValue={setDefaultToPreviousParticipant}></SettingsCheckbox>
-                        <SettingsCheckbox label="External Control"
-                                          value={showExternalControl}
-                                          setValue={setShowExternalControl}></SettingsCheckbox>
-                        <SettingsCheckbox label="Simple Protocol Editor"
-                                          value={showSimpleProtocolEditor}
-                                          setValue={setShowSimpleProtocolEditor}></SettingsCheckbox>
-                    </fieldset>
+            {showSettings ?
+                <section id="settings" style={{display: 'inline-block', width: '100%'}}>
+                    <section id="basic-settings" style={{display: 'flex', width: '100%'}}>
+                        <fieldset style={{width: "100%", textAlign: "left"}}>
+                            <SettingsSelect label={"Baud Rate"} value={baudRate} setValue={setBaudRate}
+                                            options={[
+                                                {"300": "300"},
+                                                {"600": "600"},
+                                                {"1200": "1200"},
+                                                {"2400": "2400"},
+                                                {"9600": "9600"}
+                                            ]}/>
+                            <SpeechVoiceSelector/><EnableSpeechSwitch/>
+                            <SettingsToggleButton trueLabel={"Verbose speech"} value={verboseSpeech}
+                                                  setValue={setVerboseSpeech}/>
+                            <SettingsToggleButton trueLabel={"Say particle count"} value={sayParticleCount}
+                                                  setValue={setSayParticleCount}/>
+                            <SettingsToggleButton trueLabel={"Advanced settings"} value={showAdvancedControls}
+                                                  setValue={setShowAdvancedControls}/>
+                        </fieldset>
+                    </section>
+                    {showAdvancedControls ?
+                        <section id="advanced-settings" style={{display: "flex", width: "100%"}}>
+                            <fieldset style={{width: "100%", textAlign: "left"}}>
+                                <SettingsToggleButton trueLabel={"Estimate FF"} value={autoEstimateFitFactor}
+                                                      setValue={setAutoEstimateFitFactor}/>
+                                <SettingsToggleButton trueLabel={"Say estimated FF"} value={sayEstimatedFitFactor}
+                                                      setValue={setSayEstimatedFitFactor}/>
+                                <SettingsToggleButton trueLabel={"Copy prev participant"}
+                                                      value={defaultToPreviousParticipant}
+                                                      setValue={setDefaultToPreviousParticipant}/>
+                                <SettingsToggleButton trueLabel={"Show external control"} value={showExternalControl}
+                                                      setValue={setShowExternalControl}/>
+                                <SettingsToggleButton trueLabel={"Show protocol editor"}
+                                                      value={showSimpleProtocolEditor}
+                                                      setValue={setShowSimpleProtocolEditor}/>
+                            </fieldset>
+                        </section> : null}
                 </section> : null}
+            {showAdvancedControls ? <div style={{float: "left"}}>
+                <PortaCountState client={portaCountClient}/>
+                <span style={{float: "left"}}>url data: {
+                    LZString.decompressFromUTF16(searchParams.get("data"))
+                }</span><br/>
+
+            </div> : null}
             {showExternalControl ? <div style={{display: "flex", width: "100%"}}>
+                <CustomProtocolPanel protocolExecutor={protocolExecutor}></CustomProtocolPanel>
                 <ExternalControlPanel control={externalController}/>
             </div> : null}
-            <ProtocolSelector onChange={(selectedProtocol) => dataCollector.setProtocol(selectedProtocol)} />
             {showSimpleProtocolEditor ? <section style={{display: "flex", width: "100%"}}>
                 <fieldset style={{width: "100%"}}>
                     <legend>fit test protocols</legend>
@@ -727,11 +728,11 @@ function App() {
                             <span
                                 style={{fontSize: "smaller"}}>({convertFitFactorToFiltrationEfficiency(estimatedFitFactor)}%)</span>
                         </div>
-                        <ReactECharts option={estimatedFitFactorGaugeOptions}/>
+                        <ReactEChartsCore echarts={echarts} option={estimatedFitFactorGaugeOptions}/>
                     </fieldset>
                     <div style={{display: "inline-block", flexGrow: 1}}>
-                        <ReactECharts style={{height: "70vh"}}
-                                      option={chartOptions}
+                        <ReactEChartsCore echarts={echarts} style={{height: "70vh"}}
+                                          option={chartOptions}
                             // notMerge={false}
                             // lazyUpdate={true}
                         />

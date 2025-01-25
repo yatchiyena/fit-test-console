@@ -3,6 +3,7 @@ export default abstract class AbstractDB {
     dbName: string;
     version: number;
     defaultDataStores: string[];
+    private openPromise?: Promise<IDBDatabase>;
 
     protected constructor(dbName: string, defaultDataStores: string[] = [], version: number = 1) {
         this.dbName = dbName;
@@ -159,14 +160,15 @@ export default abstract class AbstractDB {
     }
 
     async open():Promise<IDBDatabase> {
+        if(this.openPromise) {
+            // open in progress
+            return this.openPromise;
+        }
         if(this.db) {
             // already opened
-            // console.log(`${this.dbName} database already opened`);
-            return new Promise((resolve) => {
-                resolve(this.db as IDBDatabase)
-            })
+            return this.db as IDBDatabase;
         }
-        return new Promise((resolve, reject) => {
+        this.openPromise = new Promise((resolve, reject) => {
             const request = window.indexedDB.open(this.dbName, this.version);
             request.onsuccess = () => {
                 this.onOpenSuccess(request);
@@ -181,6 +183,7 @@ export default abstract class AbstractDB {
                 reject("upgrade needed")
             };
         });
+        return this.openPromise;
     }
 
     close() {

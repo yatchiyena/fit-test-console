@@ -19,6 +19,7 @@ export enum AppSettings {
     BAUD_RATE = "baud-rate",
     PROTOCOL_INSTRUCTION_SETS = "protocol-instruction-sets",
     SELECTED_PROTOCOL = "selected-protocol",
+    SHOW_SETTINGS = "show-settings",
 }
 
 const defaultSettings: { [key: string]: unknown } = {}
@@ -55,13 +56,16 @@ class SettingsDB extends AbstractDB {
         theDb.createObjectStore(SettingsDB.OBJECT_STORE_NAME, {keyPath: "ID"});
     }
 
+    private updateCache<T>(entry: SettingsDBEntry<T>) {
+        this.settingsCache[entry.ID] = entry.value;
+        console.log(`getSettings ${entry.ID}: ${JSON.stringify(entry.value)}`);
+    }
+
     public async getSetting<T>(name: AppSettings, defaultValue?: T): Promise<T> {
         const result = await this.get<SettingsDBEntry<T>>(SettingsDB.OBJECT_STORE_NAME, name);
         if (result) {
-            const value = result.value;
-            this.settingsCache[name] = value;
-            console.log(`getSettings ${name}: ${JSON.stringify(value)}`);
-            return value;
+            this.updateCache<T>(result)
+            return result.value;
         }
         if (defaultValue) {
             console.log(`getSettings ${name}; no saved setting, returning default ${defaultValue}`)
@@ -79,12 +83,13 @@ class SettingsDB extends AbstractDB {
             return;
         }
         const entry = {ID: name, value: value}
+        this.updateCache(entry);
         return this.put<SettingsDBEntry<T>>(SettingsDB.OBJECT_STORE_NAME, entry)
     }
 }
 
 
-export const SETTINGS_DB = new SettingsDB();
+export const SETTINGS_DB:SettingsDB = new SettingsDB();
 
 export function useDBSetting<T>(setting: AppSettings, defaultValue?: T): [T, Dispatch<SetStateAction<T>>] {
     const [value, setValue] = useState<T>(defaultValue || defaultSettings[setting] as T);

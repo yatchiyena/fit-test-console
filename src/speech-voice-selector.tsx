@@ -1,21 +1,30 @@
 /*
  Text-to-speech functions
  */
-import {useCallback, useEffect, useRef} from "react";
-import {AppSettings} from "./settings-db.ts";
+import {useCallback, useEffect} from "react";
+import {AppSettings, useDBSetting} from "./settings-db.ts";
 import {speech} from "./speech.ts";
-import {useDBSetting} from "./settings-db.ts";
+import {SettingsToggleButton} from "./Settings.tsx";
 
-
-export function SpeechSynthesisPanel() {
-    const [selectedVoiceName, setSelectedVoiceName] = useDBSetting<string>(AppSettings.SPEECH_VOICE, findDefaultVoice()?.name || "default");
+export function EnableSpeechSwitch() {
     const [speechEnabled, setSpeechEnabled] = useDBSetting<boolean>(AppSettings.SPEECH_ENABLED, false);
-    const enableSpeechCheckboxRef = useRef<HTMLInputElement>(null);
+    useEffect(() => {
+        speech.setSpeechEnabled(speechEnabled);
+    }, [speechEnabled]);
+
+    return (
+        <SettingsToggleButton trueLabel={"Enable speech"} value={speechEnabled} setValue={setSpeechEnabled}/>
+    )
+}
+
+
+export function SpeechVoiceSelector() {
+    const [selectedVoiceName, setSelectedVoiceName] = useDBSetting<string>(AppSettings.SPEECH_VOICE, findDefaultVoice()?.name || "default");
 
     const updateSelectedVoice = useCallback((voiceName: string) => {
         const foundVoice = findVoiceByName(voiceName);
         console.log(`looking for voice '${voiceName}'; found voice ${foundVoice?.name}`)
-        if(foundVoice) {
+        if (foundVoice) {
             speech.setSelectedVoice(foundVoice);
             setSelectedVoiceName(voiceName)
             speech.sayItLater(`This is ${foundVoice.name} speaking.`)
@@ -25,16 +34,6 @@ export function SpeechSynthesisPanel() {
     useEffect(() => {
         updateSelectedVoice(selectedVoiceName)
     }, [selectedVoiceName, updateSelectedVoice])
-
-    useEffect(() => {
-        speech.setSpeechEnabled(speechEnabled);
-        if (speechEnabled) {
-            speech.sayIt(`This is ${selectedVoiceName}; speech is enabled.`)
-        } else {
-            speechSynthesis.cancel();
-        }
-    }, [speechEnabled, selectedVoiceName]);
-
 
     function findDefaultVoice() {
         if (!speechSynthesis) {
@@ -53,12 +52,7 @@ export function SpeechSynthesisPanel() {
 
     return (
         <>
-            <div style={{display: "inline-block"}}>
-                <input type="checkbox" ref={enableSpeechCheckboxRef} id="enable-speech-checkbox" checked={speechEnabled}
-                       onChange={e => setSpeechEnabled(e.target.checked)}/>
-                <label htmlFor="enable-speech-checkbox">Enable Speech</label>
-            </div>
-            &nbsp;
+            Voice:&nbsp;
             <select value={selectedVoiceName} onChange={e => setSelectedVoiceName(e.target.value)}>
                 {
                     speech.getAllVoices().map((voice) => {
