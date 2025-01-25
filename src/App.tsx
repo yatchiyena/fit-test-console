@@ -348,7 +348,7 @@ function App() {
     const [dataCollector] = useState(() => new DataCollector(dataCollectorStates, logCallback, rawDataCallback,
         processedDataCallback, resultsDatabase))
     const [portaCountClient] = useState(new PortaCountClient8020())
-    const [searchParams, setSearchParams] = useSearchParams()
+    const [searchParams] = useSearchParams()
 
     // TODO: process the url data then clear it. changing url params acts like navigation tho.
     // setSearchParams((prev) => {
@@ -610,6 +610,7 @@ function App() {
         protocolExecutor.setStages(stages)
     }
 
+    const urlData = searchParams.get("data");
     return (
         <>
             <section id="data-source-baud-rate" style={{display: 'flex', width: '100%'}}>
@@ -687,7 +688,7 @@ function App() {
             {showAdvancedControls ? <div style={{float: "left"}}>
                 <PortaCountState client={portaCountClient}/>
                 <span style={{float: "left"}}>url data: {
-                    LZString.decompressFromUTF16(searchParams.get("data"))
+                    urlData? LZString.decompressFromUTF16(urlData):"none"
                 }</span><br/>
 
             </div> : null}

@@ -264,7 +264,7 @@ export function ResultsTable({dataCollector}: {
     function generateQRCode() {
         // first, extract data and compress it with lz-string
         const {csv} = generateCsvPayload();
-        const str = LZString.compressToUTF16(csv)
+        const str = LZString.compressToUTF16(csv.toString())
         location.replace(`/?data=${str}`)
         // const decoded = LZString.decompressFromUTF16(str)
         // const link = createMailtoLink("", "data", decoded)
