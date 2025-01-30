@@ -39,18 +39,19 @@ import {JSONContent} from "vanilla-jsoneditor";
 import {ProtocolDefinition, ShortStageDefinition, StageDefinition} from "./simple-protocol.ts";
 import {PortaCountClient8020, PortaCountListener} from "./portacount-client-8020.ts";
 import {PortaCountState} from "./portacount-state.tsx";
-import {useSearchParams} from "react-router";
+import {useNavigate, useSearchParams} from "react-router";
 import LZString from "lz-string";
 
 echarts.use([DatasetComponent, LineChart, GaugeChart, GridComponent, SingleAxisComponent, TooltipComponent, AxisPointerComponent, TimelineComponent,
     MarkAreaComponent, LegendComponent, DataZoomComponent, VisualMapComponent, CanvasRenderer]);
+
 
 function App() {
     const simulationSpeedsBytesPerSecond: number[] = [300, 1200, 14400, 28800, 56760];
     const [showSettings, setShowSettings] = useDBSetting<boolean>(AppSettings.SHOW_SETTINGS, false);
     const [dataSource, setDataSource] = useState<string>("web-serial")
     const [simulationSpeedBytesPerSecond, setSimulationSpeedBytesPerSecond] = useState<number>(simulationSpeedsBytesPerSecond[simulationSpeedsBytesPerSecond.length - 1]);
-    const [dataToDownload, setDataToDownload] = useState<string>("all-results")
+    const [dataToDownload, setDataToDownload] = useState<string>("all-raw-data")
     const [rawConsoleData, setRawConsoleData] = useState<string>("")
     const rawConsoleDataTextAreaRef = React.useRef<HTMLTextAreaElement>(null)
     const [logData, setLogData] = useState<string>("")
@@ -349,16 +350,28 @@ function App() {
         processedDataCallback, resultsDatabase))
     const [portaCountClient] = useState(new PortaCountClient8020())
     const [searchParams] = useSearchParams()
+    const navigate = useNavigate();
 
-    // TODO: process the url data then clear it. changing url params acts like navigation tho.
-    // setSearchParams((prev) => {
-    //     prev.delete("data")
-    //     return prev;
-    // })
+    function processUrlData() {
+        const dataParam = searchParams.get("data");
+        if(!dataParam) {
+            return;
+        }
+        const urlData = LZString.decompressFromUTF16(dataParam)
+        if(urlData) {
+            navigate(location.pathname, {replace: true}) // remove data from the url
+            console.log(`got url data: ${urlData}`);
+            appendRaw(urlData)
+        }
+    }
 
     useEffect(() => {
         portaCountClient.addListener(dataCollector);
         portaCountClient.addListener(externalController);
+
+        // handle data sent via url
+        processUrlData();
+
         return () => {
             portaCountClient.removeListener(dataCollector)
             portaCountClient.removeListener(externalController)
@@ -476,10 +489,10 @@ function App() {
     }
 
     function downloadButtonClickHandler() {
+        downloadAllRawDataAsJSON() // there's only 1 option at the moment
         switch (dataToDownload) {
             case "all-raw-data":
                 // downloadRawData(rawConsoleData, "raw-fit-test-data");
-                downloadAllRawDataAsJSON()
                 break;
             default:
                 console.log(`unsupported data to download: ${dataToDownload}`);
@@ -610,7 +623,6 @@ function App() {
         protocolExecutor.setStages(stages)
     }
 
-    const urlData = searchParams.get("data");
     return (
         <>
             <section id="data-source-baud-rate" style={{display: 'flex', width: '100%'}}>
@@ -687,10 +699,6 @@ function App() {
                 </section> : null}
             {showAdvancedControls ? <div style={{float: "left"}}>
                 <PortaCountState client={portaCountClient}/>
-                <span style={{float: "left"}}>url data: {
-                    urlData? LZString.decompressFromUTF16(urlData):"none"
-                }</span><br/>
-
             </div> : null}
             {showExternalControl ? <div style={{display: "flex", width: "100%"}}>
                 <CustomProtocolPanel protocolExecutor={protocolExecutor}></CustomProtocolPanel>

@@ -3,7 +3,7 @@ External control for the PortaCount 8020a
 The technical addendum describes the interface. Starts on page 13.
  https://tsi.com/getmedia/0d5db6cd-c54d-4644-8c31-40cc8c9d8a9f/PortaCount_Model_8020_Technical_Addendum_US?ext=.pdf
  */
-import React, {useEffect, useRef} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {speech} from "./speech.ts";
 import {ControlSource, DataTransmissionState, PortaCountListener} from "./portacount-client-8020.ts";
 import {SampleSource} from "./fit-test-protocol.ts";
@@ -87,6 +87,8 @@ export function ExternalControlPanel({control}: { control: ExternalController })
     const beepButtonRef = useRef<HTMLInputElement>(null);
     const requestSettingsButtonRef = useRef<HTMLInputElement>(null);
     const powerOffButtonRef = useRef<HTMLInputElement>(null);
+    const sendCommandButtonRef = useRef<HTMLInputElement>(null);
+    const [commandInput, setCommandInput] = useState<string>("")
 
     const controlButtonRefs: React.RefObject<HTMLInputElement>[] = [valvePositionButtonRef, dataTransmissionModeButtonRef,
         beepButtonRef, requestSettingsButtonRef, powerOffButtonRef];
@@ -198,30 +200,39 @@ export function ExternalControlPanel({control}: { control: ExternalController })
         control.sendCommand(`B${String(tenthsOfSeconds).padStart(2, "0")}`);
     }
 
+    function sendCommand() {
+        control.sendCommand(commandInput);
+        setCommandInput("")
+    }
+
 
     return (
         <>
             <fieldset id="portacount-controls-fieldset" style={{display: "inline-block", float: "inline-start"}}>
                 <legend>PortaCount control</legend>
+                <input type="text" id={"command-input"} value={commandInput} placeholder="command to send"
+                       onChange={(e) => setCommandInput(e.target.value)}/>
+                <input type="button" ref={sendCommandButtonRef} value={"Send Command"} id={"send-command-button"}
+                       onClick={sendCommand}/>
                 <input type="button" ref={forceInternalControlButtonRef} value="Force internal control"
                        id="force-internal-control-button"
                        onClick={releaseManualControl}/>
                 <input type="button" ref={controlModeButtonRef}
-                                                             value={control.states.controlMode}
-                                                             id={"control-mode-button"}
-                                                             onClick={toggleControlMode}/>
+                       value={control.states.controlMode}
+                       id={"control-mode-button"}
+                       onClick={toggleControlMode}/>
                 <input type="button" ref={valvePositionButtonRef} value={control.states.valvePosition}
-                        id={"valve-position-button"}
-                        onClick={toggleValvePosition}/>
+                       id={"valve-position-button"}
+                       onClick={toggleValvePosition}/>
                 <input type="button" ref={dataTransmissionModeButtonRef} value={control.states.dataTransmissionMode}
-                        id={"data-transmit-mode-button"}
-                        onClick={dataTransmitModeButtonClicked}/>
+                       id={"data-transmit-mode-button"}
+                       onClick={dataTransmitModeButtonClicked}/>
                 <input type="button" ref={requestSettingsButtonRef} value={"Request Settings"}
-                        id={"request-settings-button"}
-                        onClick={requestSettings}/>
+                       id={"request-settings-button"}
+                       onClick={requestSettings}/>
                 <input type="button" ref={beepButtonRef} value={"Beep!"} id={"beep-button"} onClick={beep}/>
                 <input type="button" ref={powerOffButtonRef} value={"Power Off"} id={"power-off-button"}
-                        onClick={powerOff}/>
+                       onClick={powerOff}/>
             </fieldset>
         </>
     )

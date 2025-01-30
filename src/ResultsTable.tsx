@@ -263,12 +263,18 @@ export function ResultsTable({dataCollector}: {
 
     function generateQRCode() {
         // first, extract data and compress it with lz-string
-        const {csv} = generateCsvPayload();
-        const str = LZString.compressToUTF16(csv.toString())
-        location.replace(`/?data=${str}`)
-        // const decoded = LZString.decompressFromUTF16(str)
-        // const link = createMailtoLink("", "data", decoded)
-        // link.click()
+
+        // The table is filtered, so look at the filtered table data for which record IDs to include. Then grab these from localTableData
+        const rows = table.getSortedRowModel().rows
+        const rowData = rows.map((row) => row.original)
+        const recordIdsToInclude:number[] = rowData.map(rd => rd.ID)
+
+        const recordsToExport:SimpleResultsDBRecord[] = localTableData.filter((row) => recordIdsToInclude.includes(row.ID));
+
+        const str = LZString.compressToUTF16(JSON.stringify(recordsToExport));
+        const url = location.toString() + `?data=${str}`;
+        console.log(`url is: ${url}`)
+        // location.replace(url)
 
         // todo: generate qr code
     }
