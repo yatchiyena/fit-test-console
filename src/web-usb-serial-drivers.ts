@@ -46,7 +46,7 @@ export class UsbSerialDrivers {
                     return driverDevice
                 })
 
-                if(driver) {
+                if (driver) {
                     resolve(new UsbSerialPort(device, driver));
                 } else {
                     reject(`could not find driver for device ${JSON.stringify(device)}`)
@@ -69,9 +69,12 @@ abstract class UsbSerialDriver implements PushSource {
     writable: WritableStream | undefined;
     inboundDataQueue: Uint8Array[] = [];
 
-    abstract open(device: USBDevice, opts: {baudRate: number}) : Promise<UsbSerialDriver>;
-    abstract close() : Promise<void>;
+    abstract open(device: USBDevice, opts: { baudRate: number }): Promise<UsbSerialDriver>;
+
+    abstract close(): Promise<void>;
+
     abstract write(chunk: Uint8Array): Promise<USBOutTransferResult>;
+
     abstract addEventListener(): void
 
     protected constructor(options: USBDeviceRequestOptions[]) {
@@ -145,14 +148,19 @@ abstract class UsbSerialDriver implements PushSource {
 }
 
 
-
 class ProlificSerialDriver extends UsbSerialDriver {
-    private delegate: ProlificUsbSerial|undefined;
+    private delegate: ProlificUsbSerial | undefined;
+
     constructor() {
-        super([{filters: [{vendorId: 1659, productId: 9123}]}]);
+        super([{
+            filters: [
+                {vendorId: 1659, productId: 9123},
+                {vendorId: 1659, productId: 8963}
+            ]
+        }]);
     }
 
-    async open(device: USBDevice, opts: {baudRate: number}) {
+    async open(device: USBDevice, opts: { baudRate: number }) {
         return new Promise<UsbSerialDriver>((resolve, reject) => {
             this.delegate = new ProlificUsbSerial(device, opts)
             this.delegate.open().then(() => resolve(this)).catch(reject);
@@ -164,7 +172,7 @@ class ProlificSerialDriver extends UsbSerialDriver {
     }
 
     override async write(chunk: Uint8Array) {
-        if(this.delegate) {
+        if (this.delegate) {
             return this.delegate.write(chunk);
         }
         return new Promise<USBOutTransferResult>((_resolve, reject) => {
@@ -173,7 +181,7 @@ class ProlificSerialDriver extends UsbSerialDriver {
     }
 
     override addEventListener() {
-        if(!this.delegate) {
+        if (!this.delegate) {
             return;
         }
         this.delegate.addEventListener('data', (event) => {
@@ -187,11 +195,12 @@ class ProlificSerialDriver extends UsbSerialDriver {
 
 class FtdiSerialDriver extends UsbSerialDriver {
     private delegate: ftdi;
+
     constructor() {
         super([{filters: [{vendorId: 1027, productId: 24577}]}])
     }
 
-    override async open(device: USBDevice, opts: {baudRate: number}) {
+    override async open(device: USBDevice, opts: { baudRate: number }) {
         this.delegate = new ftdi(device, opts)
         return new Promise<UsbSerialDriver>((resolve) => {
             resolve(this);
