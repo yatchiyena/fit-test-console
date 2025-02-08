@@ -1,4 +1,5 @@
 import {isNull, isUndefined} from "json-2-csv/lib/utils";
+import {ConnectionStatus} from "./App.tsx"
 
 export function convertFitFactorToFiltrationEfficiency(fitFactor:number) {
     const efficiency = 100 * (1.0 - 1.0 / fitFactor);
@@ -6,6 +7,23 @@ export function convertFitFactorToFiltrationEfficiency(fitFactor:number) {
     return efficiencyPercentage;
 }
 
+
+export function getConnectionStatusCssClass(connectionStatus: ConnectionStatus) : string {
+    switch (connectionStatus) {
+        case ConnectionStatus.DISCONNECTED: {
+            return "connection-status status-disconnected";
+        }
+        case ConnectionStatus.WAITING: {
+            return "connection-status status-waiting";
+        }
+        case ConnectionStatus.RECEIVING: {
+            return "connection-status status-receiving";
+        }
+        default: {
+            return "connection-status";
+        }
+    }
+}
 
 export function getFitFactorCssClass(fitFactor:number):string {
     if (fitFactor < 1.1) {

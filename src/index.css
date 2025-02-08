@@ -140,3 +140,18 @@ td.results {
   color: whitesmoke
 }
 
+.connection-status {
+  display: inline-block;
+  margin-inline-end: 1rem;
+  margin-inline-start: 0.5rem;
+}
+.status-disconnected {
+  color: red;
+}
+.status-waiting {
+  color: orange;
+}
+.status-receiving {
+  color: green; 
+}
+
