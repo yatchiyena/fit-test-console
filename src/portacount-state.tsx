@@ -30,8 +30,9 @@ export function PortaCountState({client}: {client:PortaCountClient8020}) {
             testStarted() {
                 setActivity(Activity.Testing)
             }
-        }
-        return () => {client.removeListener(listener)}
+        };
+        client.addListener(listener);
+        return () => {client.removeListener(listener)};
     }, []);
     return (
         <div>
