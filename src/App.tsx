@@ -8,7 +8,7 @@ import {ExternalController, ExternalControlPanel, ExternalControlStates} from ".
 import {SimpleDB, SimpleResultsDB} from "./database.ts";
 import {downloadData} from "./html-data-downloader.ts";
 import {UsbSerialDrivers} from "./web-usb-serial-drivers.ts";
-import {convertFitFactorToFiltrationEfficiency, formatFitFactor, getFitFactorCssClass} from "./utils.ts";
+import {convertFitFactorToFiltrationEfficiency, formatFitFactor, getConnectionStatusCssClass, getFitFactorCssClass} from "./utils.ts";
 import {SettingsSelect, SettingsToggleButton} from "./Settings.tsx";
 
 // import ReactECharts from "echarts-for-react";
@@ -45,11 +45,17 @@ import LZString from "lz-string";
 echarts.use([DatasetComponent, LineChart, GaugeChart, GridComponent, SingleAxisComponent, TooltipComponent, AxisPointerComponent, TimelineComponent,
     MarkAreaComponent, LegendComponent, DataZoomComponent, VisualMapComponent, CanvasRenderer]);
 
+export enum ConnectionStatus {
+    DISCONNECTED = "Disconnected",
+    WAITING = "Waiting for Portacount",
+    RECEIVING = "Receiving data",
+}
 
 function App() {
     const simulationSpeedsBytesPerSecond: number[] = [300, 1200, 14400, 28800, 56760];
     const [showSettings, setShowSettings] = useDBSetting<boolean>(AppSettings.SHOW_SETTINGS, false);
     const [dataSource, setDataSource] = useState<string>("web-serial")
+    const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED)
     const [simulationSpeedBytesPerSecond, setSimulationSpeedBytesPerSecond] = useState<number>(simulationSpeedsBytesPerSecond[simulationSpeedsBytesPerSecond.length - 1]);
     const [dataToDownload, setDataToDownload] = useState<string>("all-raw-data")
     const [rawConsoleData, setRawConsoleData] = useState<string>("")
@@ -435,6 +441,9 @@ function App() {
         console.log(`datasource is now ${dataSource}`)
     }, [dataSource]);
     useEffect(() => {
+        console.log(`connection status is now ${connectionStatus}`)
+    }, [connectionStatus]);
+    useEffect(() => {
         console.log(`Download File Format set to ${dataToDownload}`)
     }, [dataToDownload]);
 
@@ -571,14 +580,21 @@ function App() {
                     if (saveToDb) {
                         rawDatabase?.addLine(line);
                     }
+                    setConnectionStatus(ConnectionStatus.RECEIVING);
                 }
             }
         }
 
-        const listener = new LineListener();
-        portaCountClient.addListener(listener)
-        await portaCountClient.monitor(reader);
-        portaCountClient.removeListener(listener);
+        try {
+            const listener = new LineListener();
+            setConnectionStatus(ConnectionStatus.WAITING);
+            portaCountClient.addListener(listener)
+            await portaCountClient.monitor(reader);
+            portaCountClient.removeListener(listener);
+        }
+        finally {
+            setConnectionStatus(ConnectionStatus.DISCONNECTED);
+        }
     }
 
 
@@ -631,7 +647,8 @@ function App() {
                 </fieldset>
                 <fieldset>
                     Data Source:&nbsp;
-                    <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}>
+                    <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}
+                            disabled={connectionStatus !== ConnectionStatus.DISCONNECTED}>
                         <option value="web-serial">WebSerial</option>
                         <option value="web-usb-serial">Web USB Serial</option>
                         <option value="simulator">Simulator</option>
@@ -645,7 +662,11 @@ function App() {
                                                                                                     value={bytesPerSecond}>{bytesPerSecond}</option>)}
                         </select> : null}
                     <input className="button" type="button" value="Connect" id="connect-button"
+                           hidden={connectionStatus !== ConnectionStatus.DISCONNECTED}
                            onClick={connectButtonClickHandler}/>
+                    <div className={getConnectionStatusCssClass(connectionStatus)}>
+                        {connectionStatus}
+                    </div>
                     <ProtocolSelector
                         onChange={(selectedProtocol) => setSelectedProtocol(selectedProtocol)}/>&nbsp;&nbsp;
 
