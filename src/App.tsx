@@ -625,25 +625,30 @@ function App() {
 
     return (
         <>
-            <section id="data-source-baud-rate" style={{display: 'flex', width: '100%'}}>
-                <fieldset style={{maxWidth: "fit-content", float: "left"}}>
+            <section id="data-source-baud-rate" style={{display: 'flex'}}>
+                <fieldset>
                     {`mftc v${__APP_VERSION__} ${import.meta.env.MODE}`}
                 </fieldset>
-                <fieldset>
-                    Data Source:&nbsp;
-                    <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}>
-                        <option value="web-serial">WebSerial</option>
-                        <option value="web-usb-serial">Web USB Serial</option>
-                        <option value="simulator">Simulator</option>
-                        <option value="database">Database</option>
-                    </select>
+                <fieldset style={{flexGrow: "1", textAlign: "left"}}>
+                    <div style={{display: "inline-block"}}>
+                        <label htmlFor="data-source-selector">Data Source: </label>
+                        <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}>
+                            <option value="web-serial">WebSerial</option>
+                            <option value="web-usb-serial">Web USB Serial</option>
+                            <option value="simulator">Simulator</option>
+                            <option value="database">Database</option>
+                        </select>
+                    </div>
                     {dataSource === "simulator" ?
-                        <select id="simulator-data-file"
-                                value={simulationSpeedBytesPerSecond}
-                                onChange={(event) => setSimulationSpeedBytesPerSecond(Number(event.target.value))}>
-                            {simulationSpeedsBytesPerSecond.map((bytesPerSecond: number) => <option key={bytesPerSecond}
-                                                                                                    value={bytesPerSecond}>{bytesPerSecond}</option>)}
-                        </select> : null}
+                        <div style={{display: "inline-block"}}>
+                            <label htmlFor="simulation-speed-select">Speed: </label>
+                            <select id="simulation-speed-select"
+                                    value={simulationSpeedBytesPerSecond}
+                                    onChange={(event) => setSimulationSpeedBytesPerSecond(Number(event.target.value))}>
+                                {simulationSpeedsBytesPerSecond.map((bytesPerSecond: number) => <option key={bytesPerSecond}
+                                                                                                        value={bytesPerSecond}>{bytesPerSecond} bps</option>)}
+                            </select>
+                        </div> : null}
                     <input className="button" type="button" value="Connect" id="connect-button"
                            onClick={connectButtonClickHandler}/>
                     <ProtocolSelector
@@ -659,37 +664,44 @@ function App() {
                 </fieldset>
             </section>
             {showSettings ?
-                <section id="settings" style={{display: 'inline-block', width: '100%'}}>
-                    <section id="basic-settings" style={{display: 'flex', width: '100%'}}>
+                <section id="settings">
+                    <section id="basic-settings" style={{display: 'flex'}}>
                         <fieldset style={{width: "100%", textAlign: "left"}}>
-                            <SettingsSelect label={"Baud Rate"} value={baudRate} setValue={setBaudRate}
-                                            options={[
-                                                {"300": "300"},
-                                                {"600": "600"},
-                                                {"1200": "1200"},
-                                                {"2400": "2400"},
-                                                {"9600": "9600"}
-                                            ]}/>
-                            <SpeechVoiceSelector/><EnableSpeechSwitch/>
-                            <SettingsToggleButton trueLabel={"Verbose speech"} value={verboseSpeech}
-                                                  setValue={setVerboseSpeech}/>
-                            <SettingsToggleButton trueLabel={"Say particle count"} value={sayParticleCount}
+                            <EnableSpeechSwitch/>
+                            <SettingsToggleButton trueLabel={"Say particle count"}
+                                                  value={sayParticleCount}
                                                   setValue={setSayParticleCount}/>
-                            <SettingsToggleButton trueLabel={"Advanced settings"} value={showAdvancedControls}
+                            <SettingsToggleButton trueLabel={"Estimate fit factor"}
+                                                  value={autoEstimateFitFactor}
+                                                  setValue={setAutoEstimateFitFactor}/>
+                            <SettingsToggleButton trueLabel={"Say estimated fit factor"}
+                                                  value={sayEstimatedFitFactor}
+                                                  setValue={setSayEstimatedFitFactor}/>
+                            <SettingsToggleButton trueLabel={"Advanced settings"}
+                                                  value={showAdvancedControls}
                                                   setValue={setShowAdvancedControls}/>
                         </fieldset>
                     </section>
                     {showAdvancedControls ?
                         <section id="advanced-settings" style={{display: "flex", width: "100%"}}>
                             <fieldset style={{width: "100%", textAlign: "left"}}>
-                                <SettingsToggleButton trueLabel={"Estimate FF"} value={autoEstimateFitFactor}
-                                                      setValue={setAutoEstimateFitFactor}/>
-                                <SettingsToggleButton trueLabel={"Say estimated FF"} value={sayEstimatedFitFactor}
-                                                      setValue={setSayEstimatedFitFactor}/>
+                                <SettingsSelect label={"Baud Rate"} value={baudRate} setValue={setBaudRate}
+                                                options={[
+                                                    {"300": "300"},
+                                                    {"600": "600"},
+                                                    {"1200": "1200"},
+                                                    {"2400": "2400"},
+                                                    {"9600": "9600"}
+                                                ]}/>
+                                <SpeechVoiceSelector/>
+                                <SettingsToggleButton trueLabel={"Verbose speech"}
+                                                      value={verboseSpeech}
+                                                      setValue={setVerboseSpeech}/>
                                 <SettingsToggleButton trueLabel={"Copy prev participant"}
                                                       value={defaultToPreviousParticipant}
                                                       setValue={setDefaultToPreviousParticipant}/>
-                                <SettingsToggleButton trueLabel={"Show external control"} value={showExternalControl}
+                                <SettingsToggleButton trueLabel={"Show external control"}
+                                                      value={showExternalControl}
                                                       setValue={setShowExternalControl}/>
                                 <SettingsToggleButton trueLabel={"Show protocol editor"}
                                                       value={showSimpleProtocolEditor}
