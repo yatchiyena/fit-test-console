@@ -8,7 +8,7 @@ import {ExternalController, ExternalControlPanel, ExternalControlStates} from ".
 import {SimpleDB, SimpleResultsDB} from "./database.ts";
 import {downloadData} from "./html-data-downloader.ts";
 import {UsbSerialDrivers} from "./web-usb-serial-drivers.ts";
-import {convertFitFactorToFiltrationEfficiency, formatFitFactor, getFitFactorCssClass} from "./utils.ts";
+import {convertFitFactorToFiltrationEfficiency, formatFitFactor, getConnectionStatusCssClass, getFitFactorCssClass} from "./utils.ts";
 import {SettingsSelect, SettingsToggleButton} from "./Settings.tsx";
 
 // import ReactECharts from "echarts-for-react";
@@ -45,11 +45,17 @@ import LZString from "lz-string";
 echarts.use([DatasetComponent, LineChart, GaugeChart, GridComponent, SingleAxisComponent, TooltipComponent, AxisPointerComponent, TimelineComponent,
     MarkAreaComponent, LegendComponent, DataZoomComponent, VisualMapComponent, CanvasRenderer]);
 
+export enum ConnectionStatus {
+    DISCONNECTED = "Disconnected",
+    WAITING = "Waiting for Portacount",
+    RECEIVING = "Receiving data",
+}
 
 function App() {
     const simulationSpeedsBytesPerSecond: number[] = [300, 1200, 14400, 28800, 56760];
     const [showSettings, setShowSettings] = useDBSetting<boolean>(AppSettings.SHOW_SETTINGS, false);
     const [dataSource, setDataSource] = useState<string>("web-serial")
+    const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED)
     const [simulationSpeedBytesPerSecond, setSimulationSpeedBytesPerSecond] = useState<number>(simulationSpeedsBytesPerSecond[simulationSpeedsBytesPerSecond.length - 1]);
     const [dataToDownload, setDataToDownload] = useState<string>("all-raw-data")
     const [rawConsoleData, setRawConsoleData] = useState<string>("")
@@ -435,6 +441,9 @@ function App() {
         console.log(`datasource is now ${dataSource}`)
     }, [dataSource]);
     useEffect(() => {
+        console.log(`connection status is now ${connectionStatus}`)
+    }, [connectionStatus]);
+    useEffect(() => {
         console.log(`Download File Format set to ${dataToDownload}`)
     }, [dataToDownload]);
 
@@ -571,14 +580,21 @@ function App() {
                     if (saveToDb) {
                         rawDatabase?.addLine(line);
                     }
+                    setConnectionStatus(ConnectionStatus.RECEIVING);
                 }
             }
         }
 
-        const listener = new LineListener();
-        portaCountClient.addListener(listener)
-        await portaCountClient.monitor(reader);
-        portaCountClient.removeListener(listener);
+        try {
+            const listener = new LineListener();
+            setConnectionStatus(ConnectionStatus.WAITING);
+            portaCountClient.addListener(listener)
+            await portaCountClient.monitor(reader);
+            portaCountClient.removeListener(listener);
+        }
+        finally {
+            setConnectionStatus(ConnectionStatus.DISCONNECTED);
+        }
     }
 
 
@@ -625,27 +641,37 @@ function App() {
 
     return (
         <>
-            <section id="data-source-baud-rate" style={{display: 'flex', width: '100%'}}>
-                <fieldset style={{maxWidth: "fit-content", float: "left"}}>
+            <section id="data-source-baud-rate" style={{display: 'flex'}}>
+                <fieldset>
                     {`mftc v${__APP_VERSION__} ${import.meta.env.MODE}`}
                 </fieldset>
-                <fieldset>
-                    Data Source:&nbsp;
-                    <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}>
-                        <option value="web-serial">WebSerial</option>
-                        <option value="web-usb-serial">Web USB Serial</option>
-                        <option value="simulator">Simulator</option>
-                        <option value="database">Database</option>
-                    </select>
+                <fieldset style={{flexGrow: "1", textAlign: "left"}}>
+                    <div style={{display: "inline-block"}}>
+                        <label htmlFor="data-source-selector">Data Source: </label>
+                        <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}
+                                disabled={connectionStatus !== ConnectionStatus.DISCONNECTED}>
+                            <option value="web-serial">WebSerial</option>
+                            <option value="web-usb-serial">Web USB Serial</option>
+                            <option value="simulator">Simulator</option>
+                            <option value="database">Database</option>
+                        </select>
+                    </div>
                     {dataSource === "simulator" ?
-                        <select id="simulator-data-file"
-                                value={simulationSpeedBytesPerSecond}
-                                onChange={(event) => setSimulationSpeedBytesPerSecond(Number(event.target.value))}>
-                            {simulationSpeedsBytesPerSecond.map((bytesPerSecond: number) => <option key={bytesPerSecond}
-                                                                                                    value={bytesPerSecond}>{bytesPerSecond}</option>)}
-                        </select> : null}
+                        <div style={{display: "inline-block"}}>
+                            <label htmlFor="simulation-speed-select">Speed: </label>
+                            <select id="simulation-speed-select"
+                                    value={simulationSpeedBytesPerSecond}
+                                    onChange={(event) => setSimulationSpeedBytesPerSecond(Number(event.target.value))}>
+                                {simulationSpeedsBytesPerSecond.map((bytesPerSecond: number) => <option key={bytesPerSecond}
+                                                                                                        value={bytesPerSecond}>{bytesPerSecond} bps</option>)}
+                            </select>
+                        </div> : null}
                     <input className="button" type="button" value="Connect" id="connect-button"
+                           hidden={connectionStatus !== ConnectionStatus.DISCONNECTED}
                            onClick={connectButtonClickHandler}/>
+                    <div className={getConnectionStatusCssClass(connectionStatus)}>
+                        {connectionStatus}
+                    </div>
                     <ProtocolSelector
                         onChange={(selectedProtocol) => setSelectedProtocol(selectedProtocol)}/>&nbsp;&nbsp;
 
@@ -659,37 +685,44 @@ function App() {
                 </fieldset>
             </section>
             {showSettings ?
-                <section id="settings" style={{display: 'inline-block', width: '100%'}}>
-                    <section id="basic-settings" style={{display: 'flex', width: '100%'}}>
+                <section id="settings">
+                    <section id="basic-settings" style={{display: 'flex'}}>
                         <fieldset style={{width: "100%", textAlign: "left"}}>
-                            <SettingsSelect label={"Baud Rate"} value={baudRate} setValue={setBaudRate}
-                                            options={[
-                                                {"300": "300"},
-                                                {"600": "600"},
-                                                {"1200": "1200"},
-                                                {"2400": "2400"},
-                                                {"9600": "9600"}
-                                            ]}/>
-                            <SpeechVoiceSelector/><EnableSpeechSwitch/>
-                            <SettingsToggleButton trueLabel={"Verbose speech"} value={verboseSpeech}
-                                                  setValue={setVerboseSpeech}/>
-                            <SettingsToggleButton trueLabel={"Say particle count"} value={sayParticleCount}
+                            <EnableSpeechSwitch/>
+                            <SettingsToggleButton trueLabel={"Say particle count"}
+                                                  value={sayParticleCount}
                                                   setValue={setSayParticleCount}/>
-                            <SettingsToggleButton trueLabel={"Advanced settings"} value={showAdvancedControls}
+                            <SettingsToggleButton trueLabel={"Estimate fit factor"}
+                                                  value={autoEstimateFitFactor}
+                                                  setValue={setAutoEstimateFitFactor}/>
+                            <SettingsToggleButton trueLabel={"Say estimated fit factor"}
+                                                  value={sayEstimatedFitFactor}
+                                                  setValue={setSayEstimatedFitFactor}/>
+                            <SettingsToggleButton trueLabel={"Advanced settings"}
+                                                  value={showAdvancedControls}
                                                   setValue={setShowAdvancedControls}/>
                         </fieldset>
                     </section>
                     {showAdvancedControls ?
                         <section id="advanced-settings" style={{display: "flex", width: "100%"}}>
                             <fieldset style={{width: "100%", textAlign: "left"}}>
-                                <SettingsToggleButton trueLabel={"Estimate FF"} value={autoEstimateFitFactor}
-                                                      setValue={setAutoEstimateFitFactor}/>
-                                <SettingsToggleButton trueLabel={"Say estimated FF"} value={sayEstimatedFitFactor}
-                                                      setValue={setSayEstimatedFitFactor}/>
+                                <SettingsSelect label={"Baud Rate"} value={baudRate} setValue={setBaudRate}
+                                                options={[
+                                                    {"300": "300"},
+                                                    {"600": "600"},
+                                                    {"1200": "1200"},
+                                                    {"2400": "2400"},
+                                                    {"9600": "9600"}
+                                                ]}/>
+                                <SpeechVoiceSelector/>
+                                <SettingsToggleButton trueLabel={"Verbose speech"}
+                                                      value={verboseSpeech}
+                                                      setValue={setVerboseSpeech}/>
                                 <SettingsToggleButton trueLabel={"Copy prev participant"}
                                                       value={defaultToPreviousParticipant}
                                                       setValue={setDefaultToPreviousParticipant}/>
-                                <SettingsToggleButton trueLabel={"Show external control"} value={showExternalControl}
+                                <SettingsToggleButton trueLabel={"Show external control"}
+                                                      value={showExternalControl}
                                                       setValue={setShowExternalControl}/>
                                 <SettingsToggleButton trueLabel={"Show protocol editor"}
                                                       value={showSimpleProtocolEditor}

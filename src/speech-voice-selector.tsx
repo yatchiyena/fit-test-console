@@ -52,15 +52,21 @@ export function SpeechVoiceSelector() {
 
     return (
         <>
-            Voice:&nbsp;
-            <select value={selectedVoiceName} onChange={e => setSelectedVoiceName(e.target.value)}>
-                {
-                    speech.getAllVoices().map((voice) => {
-                        return <option key={voice.name}
-                                       value={voice.name}>{`${voice.name} (${voice.lang}) ${voice.default ? " DEFAULT" : ""}`}</option>
-                    })
-                }
-            </select>
+            <div style={{display: "inline-block"}}>
+                <label htmlFor='speech-voice-select'>Voice: </label>
+                <select id="speech-voice-select"
+                        value={selectedVoiceName}
+                        onChange={e => setSelectedVoiceName(e.target.value)}
+                        style={{textOverflow: "ellipsis", width: "15em"}}>
+                    {
+                        speech.getAllVoices().map((voice) => {
+                            return <option key={voice.name}
+                                        value={voice.name}>{`${voice.name} (${voice.lang}) ${voice.default ? " DEFAULT" : ""}`}</option>
+                        })
+                    }
+                </select>
+                &nbsp;&nbsp;
+            </div>
         </>
     );
 }
