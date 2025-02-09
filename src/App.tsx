@@ -414,6 +414,9 @@ function App() {
         dataCollectorStates.sayParticleCount = sayParticleCount;
     }, [sayParticleCount, dataCollectorStates]);
     useEffect(() => {
+        dataCollectorStates.verboseSpeech = verboseSpeech;
+    }, [verboseSpeech, dataCollectorStates]);
+    useEffect(() => {
         dataCollectorStates.sayEstimatedFitFactor = sayEstimatedFitFactor;
     }, [sayEstimatedFitFactor, dataCollectorStates]);
     useEffect(() => {
