@@ -648,7 +648,7 @@ function App() {
                 <fieldset style={{flexGrow: "1", textAlign: "left"}}>
                     <div style={{display: "inline-block"}}>
                         <label htmlFor="data-source-selector">Data Source: </label>
-                        <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}>
+                        <select id="data-source-selector" defaultValue={dataSource} onChange={dataSourceChanged}
                                 disabled={connectionStatus !== ConnectionStatus.DISCONNECTED}>
                             <option value="web-serial">WebSerial</option>
                             <option value="web-usb-serial">Web USB Serial</option>
