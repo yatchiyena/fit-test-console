@@ -79,6 +79,7 @@ function App() {
     const [defaultToPreviousParticipant, setDefaultToPreviousParticipant] = useDBSetting(AppSettings.DEFAULT_TO_PREVIOUS_PARTICIPANT, false);
     const [protocolExecutor] = useState<ProtocolExecutor>(new ProtocolExecutor());
     const [protocolDefinitions] = useDBSetting<JSONContent>(AppSettings.PROTOCOL_INSTRUCTION_SETS)
+    const [showLogPanels, setShowLogPanels] = useDBSetting(AppSettings.SHOW_LOG_PANELS, false)
 
     const [resultsDatabase] = useState(() => new SimpleResultsDB());
     const [rawDatabase] = useState(() => new SimpleDB());
@@ -727,6 +728,7 @@ function App() {
                                 <SettingsToggleButton trueLabel={"Show protocol editor"}
                                                       value={showSimpleProtocolEditor}
                                                       setValue={setShowSimpleProtocolEditor}/>
+                                <SettingsToggleButton trueLabel={"Show raw data"} value={showLogPanels} setValue={setShowLogPanels}/>
                             </fieldset>
                         </section> : null}
                 </section> : null}
@@ -794,7 +796,7 @@ function App() {
                     }} value={instructions}></textarea>
                 </fieldset>
             </section>
-            <DataCollectorPanel dataCollector={dataCollector}></DataCollectorPanel>
+            <DataCollectorPanel dataCollector={dataCollector} showLogs={showLogPanels}></DataCollectorPanel>
         </>
     )
 }

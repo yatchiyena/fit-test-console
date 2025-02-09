@@ -20,6 +20,7 @@ export enum AppSettings {
     PROTOCOL_INSTRUCTION_SETS = "protocol-instruction-sets",
     SELECTED_PROTOCOL = "selected-protocol",
     SHOW_SETTINGS = "show-settings",
+    SHOW_LOG_PANELS = "show-log-panels",
 }
 
 const defaultSettings: { [key: string]: unknown } = {}

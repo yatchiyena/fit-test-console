@@ -149,6 +149,7 @@ export class DataCollector implements PortaCountListener {
         this.setInstructionsForExercise(1);
         this.inProgressTestPromiseChain = this.recordTestStart();
     }
+
     controlSourceChanged(source: ControlSource) {
         this.controlSource = source;
     }
@@ -159,7 +160,7 @@ export class DataCollector implements PortaCountListener {
         const result = results.result
         this.recordExerciseResult(exerciseNum, ff);
 
-        if(typeof exerciseNum === 'number') {
+        if (typeof exerciseNum === 'number') {
             this.appendToProcessedData(`Exercise ${exerciseNum}: Fit factor is ${ff}. Result: ${result}\n`)
             this.setInstructionsForExercise(exerciseNum + 1);
             speech.sayItLater(`Score was ${ff}`)
@@ -179,14 +180,15 @@ export class DataCollector implements PortaCountListener {
         this.recordTestAborted();
         this.recordTestComplete()
     }
+
     particleConcentrationReceived(event: ParticleConcentrationEvent) {
         this.appendToProcessedData(`${new Date(event.getTimestamp()).toISOString()}: ${event.source} concentration: ${event.concentration}\n`);
 
         // handle realtime
         // if we're in the middle of a test, ignore
-        if(this.currentTestData) {
+        if (this.currentTestData) {
             // in the middle of a test. If it's a mask concentration, we're probably in a purge phase.
-            if(event.source === SampleSource.Mask) {
+            if (event.source === SampleSource.Mask) {
                 // todo: we don't technically need this.
                 this.setInstructions("Breathe normally");
             }
@@ -205,7 +207,7 @@ export class DataCollector implements PortaCountListener {
 
             }
         }
-        if(this.controlSource === ControlSource.External) {
+        if (this.controlSource === ControlSource.External) {
             this.appendToProcessedData(`${this.sampleSource}: ${concentration}\n`)
         }
 
@@ -285,7 +287,7 @@ export class DataCollector implements PortaCountListener {
     // chain a function to the end of the test sequence promise so these get processed sequentially.
     // should only be a problem when using the simulator because the datastream has no delay.
     private chain(fun: () => void) {
-        if(this.inProgressTestPromiseChain) {
+        if (this.inProgressTestPromiseChain) {
             this.inProgressTestPromiseChain = this.inProgressTestPromiseChain.then(fun)
         } else {
             fun()
@@ -307,7 +309,7 @@ export class DataCollector implements PortaCountListener {
 
         if (this.states.defaultToPreviousParticipant) {
             // copy the string fields over from prev test data if present
-            if(this.previousTestData?.Mask || this.previousTestData?.Participant || this.previousTestData?.Notes) {
+            if (this.previousTestData?.Mask || this.previousTestData?.Participant || this.previousTestData?.Notes) {
                 // the previous record had participant info. update the source pointer to it.
                 this.sourceDataToCopy = this.previousTestData;
             }
@@ -317,7 +319,7 @@ export class DataCollector implements PortaCountListener {
                         // don't copy fields that were assigned
                         continue;
                     }
-                    if(key.startsWith("Ex ") || key.startsWith("Final")) {
+                    if (key.startsWith("Ex ") || key.startsWith("Final")) {
                         // don't copy exercise results
                         continue
                     }
@@ -721,7 +723,7 @@ export interface DataCollectorStates {
     setGaugeOptions: React.Dispatch<React.SetStateAction<EChartsOption>>
 }
 
-export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollector }) {
+export function DataCollectorPanel({dataCollector, showLogs}: { dataCollector: DataCollector, showLogs: boolean }) {
     const [rawConsoleData, setRawConsoleData] = useState<string>("")
     const rawConsoleDataTextAreaRef = React.useRef<HTMLTextAreaElement>(null)
     const [logData, setLogData] = useState<string>("")
@@ -747,7 +749,7 @@ export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollect
                     <ResultsTable dataCollector={dataCollector}/>
                 </fieldset>
             </section>
-            <section style={{width: "100%", display: "flex"}}>
+            {showLogs ? <section style={{width: "100%", display: "flex"}}>
                 <fieldset style={{flexGrow: 1}}>
                     <legend>Raw Data</legend>
                     <textarea id="raw-data" ref={rawConsoleDataTextAreaRef} readOnly
@@ -762,8 +764,8 @@ export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollect
                               tabIndex={1001}
                               value={processedData}/>
                 </fieldset>
-            </section>
-            <section style={{width: "100%"}}>
+            </section> : null}
+            {showLogs ? <section style={{width: "100%"}}>
                 <fieldset>
                     <legend>Log</legend>
                     <textarea id="log-text-area" ref={logDataTextAreaRef} readOnly
@@ -772,7 +774,7 @@ export function DataCollectorPanel({dataCollector}: { dataCollector: DataCollect
                               value={logData}
                     />
                 </fieldset>
-            </section>
+            </section> : null}
         </>
     )
 }
